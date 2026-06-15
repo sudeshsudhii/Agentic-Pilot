@@ -1,0 +1,434 @@
+:root {
+  color: #182021;
+  background: #f5f6f2;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: #172421;
+  color: #f7faf4;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 750;
+  font-size: 20px;
+}
+
+.sidebar nav {
+  display: grid;
+  gap: 8px;
+}
+
+.sidebar button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: #dfe9de;
+  background: transparent;
+  text-align: left;
+}
+
+.sidebar button.active,
+.sidebar button:hover {
+  background: #28423c;
+  color: #ffffff;
+}
+
+main {
+  padding: 28px;
+  overflow: auto;
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(340px, 460px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #d9ded7;
+  border-radius: 8px;
+  padding: 18px;
+  box-shadow: 0 12px 32px rgba(24, 32, 33, 0.08);
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  font-size: 24px;
+  margin-bottom: 0;
+}
+
+h2 {
+  font-size: 18px;
+  margin-bottom: 0;
+}
+
+h3 {
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+
+.task-input {
+  display: grid;
+  gap: 12px;
+}
+
+textarea,
+input {
+  width: 100%;
+  border: 1px solid #c8d0c6;
+  border-radius: 8px;
+  padding: 12px;
+  color: #1f292a;
+  background: #fbfcfa;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.task-actions,
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.primary-button,
+.secondary-button,
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0 14px;
+}
+
+.primary-button {
+  background: #0f6f64;
+  color: white;
+}
+
+.primary-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.secondary-button {
+  background: #ffffff;
+  color: #263130;
+  border-color: #cbd4ce;
+}
+
+.icon-button {
+  width: 38px;
+  padding: 0;
+  background: #eef2ec;
+  color: #263130;
+}
+
+.icon-button.danger {
+  color: #b33a3a;
+}
+
+.model-label,
+.chip,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  background: #e8efe8;
+  color: #25433c;
+  white-space: nowrap;
+}
+
+.status-pill.completed {
+  background: #dff3e7;
+  color: #11623f;
+}
+
+.status-pill.failed,
+.status-pill.cancelled {
+  background: #f9e4df;
+  color: #9c3328;
+}
+
+.status-pill.waiting_approval {
+  background: #fff1cd;
+  color: #7b5200;
+}
+
+.task-line {
+  color: #43504e;
+}
+
+.muted {
+  color: #68726f;
+}
+
+.event-list,
+.history-list,
+.plugin-list {
+  display: grid;
+  gap: 10px;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.event-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: #ce6b48;
+}
+
+.event-row small {
+  display: block;
+  color: #65706e;
+}
+
+.result-block {
+  overflow: auto;
+  background: #182021;
+  color: #d8f4e7;
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 260px;
+}
+
+.error-text {
+  color: #9c3328;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #d9ded7;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  text-align: left;
+}
+
+.history-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-card {
+  border: 1px solid #d9ded7;
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: start;
+  justify-content: flex-end;
+}
+
+.settings-form {
+  display: grid;
+  gap: 16px;
+  max-width: 520px;
+}
+
+.settings-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.toggle-row {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.toggle-row input {
+  width: auto;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 19, 18, 0.46);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.modal {
+  width: min(440px, 100%);
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+}
+
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.risk-line {
+  display: flex;
+  justify-content: space-between;
+  border: 1px solid #ead59b;
+  background: #fff7df;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 14px 0;
+}
+
+.setup-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #172421;
+}
+
+.setup-panel {
+  width: min(720px, 100%);
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.setup-steps {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+.setup-steps button {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid #cbd4ce;
+  background: #ffffff;
+}
+
+.setup-steps button.active {
+  background: #0f6f64;
+  color: #ffffff;
+}
+
+.setup-content {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 14px;
+  }
+
+  .sidebar nav {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .sidebar button {
+    justify-content: center;
+    padding: 10px;
+  }
+
+  .sidebar button span,
+  .brand span {
+    display: none;
+  }
+
+  main {
+    padding: 16px;
+  }
+
+  .workbench {
+    grid-template-columns: 1fr;
+  }
+}
