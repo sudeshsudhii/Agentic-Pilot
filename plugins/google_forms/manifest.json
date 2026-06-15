@@ -1,0 +1,11 @@
+{
+  "plugin_id": "google_forms",
+  "name": "Google Forms",
+  "sites": ["docs.google.com/forms", "forms.gle"],
+  "actions": ["fill_form", "submit_form"],
+  "risk_levels": {
+    "fill_form": "medium",
+    "submit_form": "high"
+  },
+  "network_permission": false
+}

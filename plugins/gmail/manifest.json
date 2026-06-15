@@ -1,0 +1,11 @@
+{
+  "plugin_id": "gmail",
+  "name": "Gmail",
+  "sites": ["gmail.com", "mail.google.com"],
+  "actions": ["compose", "send_email"],
+  "risk_levels": {
+    "compose": "medium",
+    "send_email": "high"
+  },
+  "network_permission": false
+}

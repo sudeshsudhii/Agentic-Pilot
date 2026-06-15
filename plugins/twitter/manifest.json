@@ -1,0 +1,10 @@
+{
+  "plugin_id": "twitter",
+  "name": "Twitter/X",
+  "sites": ["twitter.com", "x.com"],
+  "actions": ["post"],
+  "risk_levels": {
+    "post": "high"
+  },
+  "network_permission": false
+}
