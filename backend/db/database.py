@@ -98,6 +98,17 @@ class Database:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 expires_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS memories (
+                memory_id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                task_id TEXT,
+                tags_json TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_accessed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                access_count INTEGER NOT NULL DEFAULT 0
+            );
             """
         )
         await db.commit()
