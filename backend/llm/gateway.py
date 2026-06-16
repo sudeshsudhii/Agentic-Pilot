@@ -32,7 +32,7 @@ class OllamaGateway:
             self._client = ollama.AsyncClient(host=self.config.ollama_base_url)
         return self._client
 
-    async def complete(self, system: str, user: str, json_mode: bool = False) -> str:
+    async def complete(self, system: str, user: str, json_mode: bool = False, image_bytes: bytes | None = None) -> str:
         """Return raw text completion content from the configured local model."""
 
         last_error: Exception | None = None
@@ -40,12 +40,16 @@ class OllamaGateway:
             started = time.perf_counter()
             try:
                 request = {
-                    "model": self.config.ollama_model,
+                    "model": self.config.ollama_model if image_bytes is None else self.config.ollama_vision_model,
                     "messages": [
                         {"role": "system", "content": system},
-                        {"role": "user", "content": user},
                     ],
                 }
+                user_msg = {"role": "user", "content": user}
+                if image_bytes:
+                    import base64
+                    user_msg["images"] = [base64.b64encode(image_bytes).decode("utf-8")]
+                request["messages"].append(user_msg)
                 if json_mode:
                     request["format"] = "json"
                 response = await self._client_instance().chat(**request)
@@ -61,6 +65,14 @@ class OllamaGateway:
                             "tokens_out": len(content.split()),
                         },
                     )
+                from backend.telemetry.tracer import tracer
+                tracer.record_llm_call(
+                    task_id="global", # Can be improved by passing via context
+                    prompt=system + "\n" + user,
+                    response=content,
+                    latency_ms=latency_ms,
+                    model=self.config.ollama_model if image_bytes is None else self.config.ollama_vision_model
+                )
                 return content
             except (ConnectionError, OSError, TimeoutError) as exc:
                 last_error = exc
@@ -68,14 +80,14 @@ class OllamaGateway:
 
         raise RuntimeError("Ollama completion failed") from last_error
 
-    async def complete_structured(self, system: str, user: str, schema: type[BaseModel]) -> BaseModel:
+    async def complete_structured(self, system: str, user: str, schema: type[BaseModel], image_bytes: bytes | None = None) -> BaseModel:
         """Return a Pydantic model parsed from an Ollama JSON-mode response."""
 
         prompt = user
         last_error: Exception | None = None
         for attempt in range(self.config.max_retry_count + 1):
             try:
-                raw = await self.complete(system, prompt, json_mode=True)
+                raw = await self.complete(system, prompt, json_mode=True, image_bytes=image_bytes)
                 return parse_model_response(raw, schema)
             except ValueError as exc:
                 last_error = exc

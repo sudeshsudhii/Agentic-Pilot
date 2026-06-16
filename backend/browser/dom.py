@@ -45,13 +45,35 @@ class DOMExtractor:
         return await page.evaluate(
             """
             () => {
+              function getCssSelector(el) {
+                  if (el.id) return `#${el.id}`;
+                  if (el.className && typeof el.className === 'string') {
+                      return el.tagName.toLowerCase() + '.' + el.className.trim().split(/\s+/).join('.');
+                  }
+                  return el.tagName.toLowerCase();
+              }
+              function getXPath(el) {
+                  if (el.id) return `//*[@id="${el.id}"]`;
+                  const parts = [];
+                  while (el && el.nodeType === Node.ELEMENT_NODE) {
+                      let sibling = el, count = 0;
+                      while (sibling) {
+                          if (sibling.nodeType === Node.ELEMENT_NODE && sibling.nodeName === el.nodeName) count++;
+                          sibling = sibling.previousSibling;
+                      }
+                      parts.unshift(el.nodeName.toLowerCase() + (count > 1 ? `[${count}]` : ''));
+                      el = el.parentNode;
+                  }
+                  return parts.length ? '/' + parts.join('/') : null;
+              }
               const selector = 'button,input,textarea,select,a,[role="button"],[role="link"],[contenteditable="true"]';
               const nodes = Array.from(document.querySelectorAll(selector));
               return nodes.map((el, index) => {
                 const rect = el.getBoundingClientRect();
                 const style = window.getComputedStyle(el);
                 const visible = rect.width > 0 && rect.height > 0 &&
-                  style.visibility !== 'hidden' && style.display !== 'none' && !el.disabled;
+                  style.visibility !== 'hidden' && style.display !== 'none';
+                const interactable = visible && !el.disabled && el.getAttribute('aria-hidden') !== 'true';
                 const id = `pilot-el-${index}`;
                 el.setAttribute('data-pilot-id', id);
                 return {
@@ -63,6 +85,9 @@ class DOMExtractor:
                   placeholder: el.getAttribute('placeholder'),
                   input_type: el.getAttribute('type'),
                   is_visible: visible,
+                  interactable: interactable,
+                  xpath: getXPath(el),
+                  css_selector: getCssSelector(el),
                   selector: `[data-pilot-id="${id}"]`,
                   bounding_box: {
                     x: rect.x + rect.width / 2,
@@ -71,7 +96,7 @@ class DOMExtractor:
                     height: rect.height
                   }
                 };
-              }).filter((item) => item.is_visible);
+              }).filter((item) => item.interactable);
             }
             """
         )

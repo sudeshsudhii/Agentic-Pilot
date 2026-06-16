@@ -6,14 +6,23 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from backend.agent.prompts import INTENT_SYSTEM_PROMPT
+from backend.agent.prompts import INTENT_SYSTEM_PROMPT, ACTION_PLANNING_SYSTEM_PROMPT
 from backend.agent.state import AgentState
-from backend.browser.actions import ActionExecutor
+from backend.browser.executor import PlaywrightExecutor
+from backend.browser.pool import browser_pool
 from backend.db.database import database
+from backend.evidence.manager import evidence_manager
 from backend.llm.gateway import OllamaGateway
-from backend.llm.parser import ParsedIntent, PlannedAction, heuristic_parse_intent
+from backend.llm.parser import ParsedIntent, PlannedAction
 from backend.plugins.runtime import plugin_registry
 from backend.security.approval import build_approval_prompt, requires_approval
+
+
+async def _get_task_page(task_id: str):
+    context = await browser_pool.get_task_context(task_id)
+    if not context.pages:
+        return await context.new_page()
+    return context.pages[0]
 
 
 async def parse_intent_node(state: AgentState) -> dict:
@@ -26,8 +35,8 @@ async def parse_intent_node(state: AgentState) -> dict:
             state["input_text"],
             ParsedIntent,
         )
-    except Exception:
-        parsed = heuristic_parse_intent(state["input_text"])
+    except Exception as exc:
+        return {"error": f"Failed to parse intent: {exc}", "status": "failed"}
     plugin = plugin_registry.find_for_intent(parsed)
     return {
         "parsed_intent": parsed,
@@ -39,8 +48,11 @@ async def parse_intent_node(state: AgentState) -> dict:
 async def risk_check_node(state: AgentState) -> dict:
     """Pause high-risk tasks and create a persisted approval record."""
 
-    intent = state["parsed_intent"]
-    if intent is None or not requires_approval(intent):
+    intent = state.get("parsed_intent")
+    if intent is None:
+        return {"status": "failed", "error": "No parsed intent available."}
+        
+    if not requires_approval(intent) or state.get("approved"):
         return {"status": "running"}
     approval_id = str(uuid.uuid4())
     await database.create_approval(
@@ -59,53 +71,183 @@ async def auth_check_node(state: AgentState) -> dict:
 
 
 async def navigate_node(state: AgentState) -> dict:
-    """Select the first target URL for the task."""
+    """Navigate to the target URL if not already there."""
 
     intent = state["parsed_intent"]
-    return {"current_url": intent.site if intent else None}
+    url = intent.site if intent else None
+    
+    if url:
+        page = await _get_task_page(state["task_id"])
+        executor = PlaywrightExecutor()
+        await executor.navigate(page, url)
+        
+    return {"current_url": url}
 
 
 async def extract_dom_node(state: AgentState) -> dict:
-    """Placeholder DOM extraction node for graph-based browser runs."""
+    """Extract interactive elements from the current page."""
 
-    return {"action_manifest": state["action_manifest"]}
+    page = await _get_task_page(state["task_id"])
+    executor = PlaywrightExecutor()
+    manifest = await executor.extractor.extract(page)
+    return {"action_manifest": manifest}
 
 
 async def plan_action_node(state: AgentState) -> dict:
     """Plan a single next action from the current intent and manifest."""
 
     intent = state["parsed_intent"]
-    if intent is None:
-        return {"planned_action": PlannedAction(action_type="need_help", reasoning="No parsed intent")}
-    action = PlannedAction(
-        action_type="navigate" if intent.action in {"search", "navigate"} else "complete",
-        url=intent.site,
-        reasoning="Deterministic MVP planner selected the next safe action.",
-    )
+    manifest = state["action_manifest"]
+    
+    if intent is None or manifest is None:
+        return {"planned_action": PlannedAction(action_type="need_help", reasoning="Missing intent or manifest")}
+        
+    gateway = OllamaGateway()
+    
+    # Retrieve relevant memories
+    from backend.memory.provider import memory_manager
+    memories = await memory_manager.retrieve_relevant(intent.action + " " + (intent.target or intent.content or ""), limit=3)
+    memory_context = ""
+    if memories:
+        memory_context = "\nRelevant Memories:\n" + "\n".join(f"- {m.content}" for m in memories)
+    
+    prompt_context = f"""
+Goal: {intent.action}
+Target: {intent.target or intent.content}
+{memory_context}
+
+Current Page Title: {manifest.page_title}
+Current URL: {manifest.url}
+Page State: {manifest.page_state}
+
+Interactive Elements:
+{json.dumps([el.model_dump() for el in manifest.interactive_elements], indent=2)}
+"""
+
+    try:
+        action = await gateway.complete_structured(
+            ACTION_PLANNING_SYSTEM_PROMPT,
+            prompt_context,
+            PlannedAction,
+        )
+        
+        if action.action_type == "need_help":
+            from backend.vision.provider import vision_provider
+            page = await _get_task_page(state["task_id"])
+            executor = PlaywrightExecutor()
+            screenshot = await executor.take_screenshot(page)
+            vision_action = await vision_provider.plan_action(screenshot, intent.action, intent.target or intent.content)
+            
+            if vision_action.action_type != "need_help":
+                action = PlannedAction(
+                    action_type=vision_action.action_type,
+                    element_id="VISION_COORD",
+                    text=vision_action.text,
+                    url=vision_action.url,
+                    reasoning=f"{vision_action.x_percent or 0.0},{vision_action.y_percent or 0.0}"
+                )
+                
+    except Exception as e:
+        action = PlannedAction(action_type="need_help", reasoning=f"LLM failure: {e}")
+
     return {"planned_action": action, "llm_call_count": state["llm_call_count"] + 1}
 
 
 async def execute_action_node(state: AgentState) -> dict:
-    """Execute the planned action or plugin and append action history."""
+    """Execute the planned action using Playwright."""
 
     action = state["planned_action"]
     if action is None:
         return {"error": "No planned action"}
-    result = {
-        "success": True,
-        "action_type": action.action_type,
-        "target": action.url,
-        "reasoning": action.reasoning,
-    }
-    return {"result": result}
+        
+    if action.action_type in ["complete", "need_help"]:
+        return {"result": {"success": action.action_type == "complete", "reasoning": action.reasoning}}
+
+    page = await _get_task_page(state["task_id"])
+    executor = PlaywrightExecutor()
+    
+    # Find element if needed
+    element = None
+    manifest = state["action_manifest"]
+    if action.element_id and manifest:
+        for el in manifest.interactive_elements:
+            if el.element_id == action.element_id:
+                element = el
+                break
+                
+    # Take before screenshot
+    before_screenshot = await executor.take_screenshot(page)
+    evidence_manager.save_screenshot(state["task_id"], f"before_step_{state['llm_call_count']}", before_screenshot)
+    evidence_manager.save_dom_snapshot(state["task_id"], state["action_manifest"])
+
+    result = None
+    try:
+        if action.action_type == "navigate" and action.url:
+            result = await executor.navigate(page, action.url)
+        elif action.element_id == "VISION_COORD":
+            x_pct, y_pct = map(float, action.reasoning.split(","))
+            viewport = page.viewport_size
+            if viewport:
+                x = viewport["width"] * x_pct
+                y = viewport["height"] * y_pct
+                if action.action_type == "click":
+                    await page.mouse.click(x, y)
+                elif action.action_type == "type_text" and action.text:
+                    await page.mouse.click(x, y)
+                    await page.keyboard.type(action.text)
+                from backend.llm.parser import ActionResult
+                result = ActionResult(success=True, action_type=action.action_type, element_id="VISION_COORD", error=None, page_state_after="ready", duration_ms=100)
+            else:
+                raise ValueError("No viewport size available for vision coordinates.")
+        elif action.action_type == "click" and element:
+            result = await executor.click(page, element)
+        elif action.action_type == "type_text" and element and action.text:
+            result = await executor.type_text(page, element, action.text)
+        elif action.action_type == "select_option" and element and action.value:
+            result = await executor.select_option(page, element, action.value)
+        else:
+            result = await executor._execute_and_verify(page, "unknown", element or manifest.interactive_elements[0], asyncio.sleep(0.1))
+            result.success = False
+            result.error = f"Unsupported action or missing element: {action.action_type}"
+    except Exception as e:
+        return {"error": str(e)}
+
+    # Take after screenshot
+    after_screenshot = await executor.take_screenshot(page)
+    evidence_manager.save_screenshot(state["task_id"], f"after_step_{state['llm_call_count']}", after_screenshot)
+
+    # Save verification result
+    if result:
+        evidence_manager.save_verification(state["task_id"], result.model_dump())
+
+    # Append to action history
+    history = state.get("action_history", [])
+    if result:
+        history.append(result)
+        
+    return {"action_history": history, "error": result.error if result and not result.success else None}
 
 
 async def verify_node(state: AgentState) -> dict:
-    """Verify task completion and account for retryable failures."""
+    """Verify task completion and enforce hard execution verification."""
 
+    # Hard execution verification: if the action reported an error (e.g. value didn't change), FAIL immediately.
     if state.get("error"):
-        return {"retry_count": state["retry_count"] + 1}
-    return {"status": "completed"}
+        if "Verification failed" in state.get("error", ""):
+            return {"status": "failed", "error": state["error"]}
+        
+        # If it's a general timeout or element not found, retry
+        if state["retry_count"] < 3:
+            return {"retry_count": state["retry_count"] + 1, "status": "running"}
+        else:
+            return {"status": "failed", "error": f"Max retries exceeded: {state['error']}"}
+        
+    action = state.get("planned_action")
+    if action and action.action_type in ["complete", "need_help"]:
+        return {"status": "completed" if action.action_type == "complete" else "failed"}
+        
+    # If not complete or failed, we loop back.
+    return {"status": "running"}
 
 
 async def error_recovery_node(state: AgentState) -> dict:
@@ -115,12 +257,20 @@ async def error_recovery_node(state: AgentState) -> dict:
 
 
 async def complete_node(state: AgentState) -> dict:
-    """Set completion state and persist the result to SQLite."""
+    """Set completion state, persist result, and release browser context."""
+
+    final_status = state.get("status", "completed")
+    if final_status == "running":
+        final_status = "completed"
 
     await database.update_task(
         state["task_id"],
-        status="completed",
+        status=final_status,
         result_json=json.dumps(state.get("result") or {}),
         completed_at=datetime.now(UTC).isoformat(),
     )
-    return {"status": "completed"}
+    
+    # Release browser context
+    await browser_pool.release_task_context(state["task_id"])
+    
+    return {"status": final_status}

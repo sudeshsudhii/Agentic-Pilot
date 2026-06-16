@@ -24,3 +24,4 @@ class AgentState(TypedDict):
     plugin_id: str | None
     llm_call_count: int
     planned_action: PlannedAction | None
+    approved: bool

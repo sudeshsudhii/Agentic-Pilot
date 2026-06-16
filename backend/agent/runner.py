@@ -10,7 +10,7 @@ import uuid
 
 from backend.config import PilotConfig, get_config
 from backend.db.database import Database
-from backend.llm.parser import ParsedIntent, heuristic_parse_intent
+from backend.llm.parser import ParsedIntent
 from backend.plugins.runtime import plugin_registry
 from backend.security.approval import build_approval_prompt, requires_approval
 
@@ -95,44 +95,66 @@ class TaskRunner:
         self._active[task_id] = asyncio.create_task(self._run(task_id, input_text, approved))
 
     async def _run(self, task_id: str, input_text: str, approved: bool) -> None:
-        """Execute a task through parse, risk, plugin, and completion steps."""
+        """Execute a task through the LangGraph state machine."""
+
+        from backend.agent.graph import build_graph
+        graph = build_graph()
+        if not graph:
+            raise RuntimeError("LangGraph could not be built")
 
         try:
             await self.db.update_task(task_id, status="running")
-            await self.db.add_event(task_id, "started", "Task started")
-            intent = heuristic_parse_intent(input_text)
-            await self.db.update_task(
-                task_id,
-                risk_level=intent.risk_level,
-                parsed_intent_json=intent.model_dump_json(),
-            )
-            await self.db.add_event(task_id, "intent_parsed", "Intent parsed", intent.model_dump())
+            await self.db.add_event(task_id, "started", "Task started via LangGraph")
 
-            if requires_approval(intent) and not approved:
-                approval_id = str(uuid.uuid4())
-                approval = await self.db.create_approval(
-                    approval_id,
-                    task_id,
-                    intent.risk_level,
-                    build_approval_prompt(intent),
-                )
-                await self.db.update_task(task_id, status="waiting_approval", approval_id=approval.approval_id)
-                await self.db.add_event(
-                    task_id,
-                    "approval_required",
-                    "Human approval required",
-                    approval.model_dump(),
-                )
-                return
+            await self.db.add_event(task_id, "browser_launching", "Browser Launching")
+            await self.db.add_event(task_id, "browser_ready", "Browser Ready")
 
-            result = await self._execute_intent(intent)
-            await self.db.update_task(
-                task_id,
-                status="completed",
-                result_json=json.dumps(result),
-                completed_at=datetime.now(UTC).isoformat(),
-            )
-            await self.db.add_event(task_id, "completed", "Task completed", result)
+            state = {
+                "task_id": task_id,
+                "input_text": input_text,
+                "parsed_intent": None,
+                "current_url": None,
+                "action_manifest": None,
+                "action_history": [],
+                "retry_count": 0,
+                "status": "running",
+                "approval_id": None,
+                "error": None,
+                "result": None,
+                "plugin_id": None,
+                "llm_call_count": 0,
+                "planned_action": None,
+                "approved": approved,
+            }
+
+            async for event in graph.astream(state):
+                for node_name, node_state in event.items():
+                    if node_name == "parse_intent":
+                        await self.db.add_event(task_id, "plan_generated", "Intent parsed", {})
+                    elif node_name == "navigate":
+                        await self.db.add_event(task_id, "page_loaded", "Page loaded", {})
+                    elif node_name == "extract_dom":
+                        await self.db.add_event(task_id, "dom_extracted", "DOM Extracted", {})
+                    elif node_name == "plan_action":
+                        await self.db.add_event(task_id, "action_executing", "Action Executing", {})
+                    elif node_name == "execute_action":
+                        await self.db.add_event(task_id, "evidence_stored", "Action Verified and Evidence Stored", {})
+                    state.update(node_state)
+
+            final_state = state
+            
+            # Record events and summarize to memory based on final state
+            if final_state.get("status") == "waiting_approval":
+                await self.db.add_event(task_id, "approval_required", "Human approval required", {"approval_id": final_state.get("approval_id")})
+            else:
+                from backend.memory.provider import memory_manager
+                await memory_manager.summarize_task(task_id, final_state.get("result") or {}, input_text)
+                
+                if final_state.get("status") == "completed":
+                    await self.db.add_event(task_id, "completed", "Task Completed", final_state.get("result") or {})
+                elif final_state.get("status") == "failed":
+                    await self.db.add_event(task_id, "failed", "Task failed", {"error": final_state.get("error")})
+
         except asyncio.CancelledError:
             await self.db.add_event(task_id, "cancelled", "Task coroutine cancelled")
         except Exception as exc:
@@ -147,39 +169,7 @@ class TaskRunner:
             self._active.pop(task_id, None)
             self._started_at.pop(task_id, None)
 
-    async def _execute_intent(self, intent: ParsedIntent) -> dict:
-        """Execute a safe MVP result for the parsed intent."""
-
-        plugin = plugin_registry.find_for_intent(intent)
-        if plugin is not None:
-            plugin_result = await plugin.execute(intent)
-            if not plugin_result.success:
-                raise RuntimeError(plugin_result.message)
-            return {
-                "mode": "plugin",
-                "plugin_id": plugin.plugin_id,
-                "message": plugin_result.message,
-                "data": plugin_result.data,
-            }
-
-        if intent.action == "search":
-            query = intent.target or intent.content or ""
-            return {
-                "mode": "browser_plan",
-                "action": "search",
-                "url": "https://www.google.com/search?q=" + quote_plus(query),
-                "dry_run": False,
-            }
-
-        site = intent.site if intent.site != "unknown" else "https://www.google.com"
-        if not site.startswith(("http://", "https://")):
-            site = "https://" + site
-        return {
-            "mode": "browser_plan",
-            "action": intent.action,
-            "url": site,
-            "dry_run": intent.risk_level in {"high", "critical"},
-        }
+    # Removed _execute_intent as execution is fully handled by LangGraph now.
 
     async def _timeout_watchdog(self) -> None:
         """Cancel tasks that exceed the configured maximum duration."""

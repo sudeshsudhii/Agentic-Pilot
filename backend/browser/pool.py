@@ -23,6 +23,7 @@ class BrowserPool:
         self._available: asyncio.Queue[BrowserContext] = asyncio.Queue()
         self._active = 0
         self._lock = asyncio.Lock()
+        self._task_contexts: dict[str, BrowserContext] = {}
 
     async def start(self) -> None:
         """Start Playwright and launch the Chromium browser if needed."""
@@ -67,6 +68,26 @@ class BrowserPool:
         async with self._lock:
             self._active = max(0, self._active - 1)
             await self._available.put(context)
+
+    async def get_task_context(self, task_id: str) -> BrowserContext:
+        """Return the context associated with a task, acquiring one if needed."""
+        
+        async with self._lock:
+            if task_id in self._task_contexts:
+                return self._task_contexts[task_id]
+                
+        context = await self.acquire()
+        async with self._lock:
+            self._task_contexts[task_id] = context
+        return context
+
+    async def release_task_context(self, task_id: str) -> None:
+        """Release a task's context back to the pool."""
+        
+        async with self._lock:
+            context = self._task_contexts.pop(task_id, None)
+        if context is not None:
+            await self.release(context)
 
     async def shutdown(self) -> None:
         """Close all browser resources gracefully."""

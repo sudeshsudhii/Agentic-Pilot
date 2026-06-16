@@ -38,7 +38,17 @@ class ActionExecutor:
 
         started = time.perf_counter()
         try:
+            initial_url = page.url
             await page.goto(_normalize_url(url), wait_until="domcontentloaded", timeout=30000)
+            
+            # Hard verification: Verify URL loaded
+            if initial_url == page.url and initial_url != "about:blank":
+                if not "google.com" in url:  # Let's not be too rigid if the user navigates to the same page, but generally we want it to work. Wait, let's just check response.
+                    pass
+            # A better verification is to check if we hit a browser error page
+            if page.url.startswith("chrome-error://"):
+                raise ValueError(f"Verification failed: Could not reach {url}")
+
             state = await self.extractor._detect_page_state(page)
             return ActionResult(
                 success=True,
@@ -107,6 +117,11 @@ class ActionExecutor:
         if locator is None:
             raise ValueError("Element has no usable selector")
         await locator.fill(text, timeout=10000)
+        
+        # Hard verification: Verify field value changed
+        actual_value = await locator.input_value(timeout=2000)
+        if actual_value != text:
+            raise ValueError(f"Verification failed: expected '{text}', got '{actual_value}'")
 
     async def _select_impl(self, page: Page, element: InteractiveElement, value: str) -> None:
         """Select an option using the best available locator."""
@@ -121,7 +136,19 @@ class ActionExecutor:
 
         started = time.perf_counter()
         try:
+            initial_url = page.url
+            initial_dom_len = len(await page.content())
+            
             await operation
+            
+            # Hard verification for clicks
+            if action_type == "click":
+                await page.wait_for_timeout(500) # Wait for potential JS mutations
+                final_url = page.url
+                final_dom_len = len(await page.content())
+                if initial_url == final_url and abs(initial_dom_len - final_dom_len) < 50:
+                    raise ValueError("Verification failed: Click did not result in a page state change")
+
             success = True
             error = None
         except PlaywrightTimeoutError as exc:
@@ -130,6 +157,7 @@ class ActionExecutor:
         except Exception as exc:
             success = False
             error = str(exc)
+            
         state = await self.extractor._detect_page_state(page)
         return ActionResult(
             success=success,

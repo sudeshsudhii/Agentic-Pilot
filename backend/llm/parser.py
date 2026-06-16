@@ -12,13 +12,12 @@ from pydantic import BaseModel, Field, ValidationError
 class ParsedIntent(BaseModel):
     """Structured interpretation of a user's natural-language task."""
 
-    action: str
-    site: str
-    content: str | None = None
-    target: str | None = None
-    attachments: list[str] = Field(default_factory=list)
-    risk_level: str
-    confidence: float = Field(ge=0.0, le=1.0)
+    action: str = Field(description="Primary action: post, send_email, fill_form, search, navigate")
+    target: str | None = Field(default=None, description="Target entity or user, if applicable")
+    content: str | None = Field(default=None, description="Content payload or search query")
+    site: str = Field(default="unknown", description="Website required, e.g., 'twitter.com'")
+    risk_level: str = Field(description="Risk classification: low, medium, high, critical")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence score (0.0 to 1.0) for parsing accuracy")
     reasoning: str
 
 
@@ -33,6 +32,9 @@ class InteractiveElement(BaseModel):
     placeholder: str | None = None
     input_type: str | None = None
     is_visible: bool
+    interactable: bool = True
+    xpath: str | None = None
+    css_selector: str | None = None
     bounding_box: dict[str, float] | None = None
     selector: str | None = None
 
@@ -55,6 +57,9 @@ class PlannedAction(BaseModel):
     value: str | None = None
     url: str | None = None
     reasoning: str
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    selector_quality: float = Field(default=1.0, ge=0.0, le=1.0)
+    grounding_quality: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class ActionResult(BaseModel):
@@ -101,96 +106,4 @@ def parse_model_response(text: str, schema: type[BaseModel]) -> BaseModel:
         raise ValueError("LLM response did not match schema") from exc
 
 
-def heuristic_parse_intent(input_text: str) -> ParsedIntent:
-    """Parse common browser intents without requiring a live LLM."""
-
-    text = input_text.strip()
-    lowered = text.lower()
-
-    action = "navigate"
-    if any(word in lowered for word in ("buy", "purchase", "order", "transfer", "delete")):
-        action = "purchase"
-        risk = "critical"
-    elif any(word in lowered for word in ("post", "tweet", "publish")):
-        action = "post"
-        risk = "high"
-    elif "send" in lowered and "email" in lowered:
-        action = "send_email"
-        risk = "high"
-    elif any(word in lowered for word in ("submit", "sign up", "register")):
-        action = "submit_form"
-        risk = "high"
-    elif any(word in lowered for word in ("fill", "compose", "draft")):
-        action = "fill_form" if "fill" in lowered else "compose"
-        risk = "medium"
-    elif "search" in lowered:
-        action = "search"
-        risk = "low"
-    else:
-        risk = "low"
-
-    site = _guess_site(lowered)
-    content = _extract_content(text)
-    target = _extract_target(text)
-    confidence = 0.86 if site != "unknown" or action != "navigate" else 0.55
-    reasoning = "Parsed using Pilot's deterministic fallback intent parser."
-
-    return ParsedIntent(
-        action=action,
-        site=site,
-        content=content,
-        target=target,
-        attachments=[],
-        risk_level=risk,
-        confidence=confidence,
-        reasoning=reasoning,
-    )
-
-
-def _guess_site(lowered: str) -> str:
-    """Infer a target site from common aliases or explicit domains."""
-
-    aliases = {
-        "twitter": "twitter.com",
-        "x.com": "x.com",
-        "gmail": "mail.google.com",
-        "google mail": "mail.google.com",
-        "google forms": "docs.google.com/forms",
-        "google form": "docs.google.com/forms",
-        "google": "google.com",
-        "amazon": "amazon.com",
-    }
-    for needle, site in aliases.items():
-        if needle in lowered:
-            return site
-
-    match = re.search(r"\b([a-z0-9-]+\.(?:com|org|net|io|ai|dev|co)(?:/[^\s]*)?)", lowered)
-    return match.group(1) if match else "unknown"
-
-
-def _extract_content(text: str) -> str | None:
-    """Extract the likely content payload from a user instruction."""
-
-    if ":" in text:
-        return text.split(":", 1)[1].strip().strip("\"'")
-
-    quoted = re.findall(r"'([^']+)'|\"([^\"]+)\"", text)
-    if quoted:
-        first = quoted[0]
-        return first[0] or first[1]
-
-    return None
-
-
-def _extract_target(text: str) -> str | None:
-    """Extract a likely recipient, URL target, or search query."""
-
-    email = re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", text)
-    if email:
-        return email.group(0)
-
-    search = re.search(r"search\s+(?:google\s+)?for\s+(.+)", text, flags=re.IGNORECASE)
-    if search:
-        return search.group(1).strip().strip("\"'")
-
-    return None
+# Heuristic fallbacks have been removed to enforce hard execution verification.
