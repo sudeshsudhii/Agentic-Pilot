@@ -17,16 +17,26 @@ Agentic-Pilot is a powerful local agent that automates web tasks using natural l
 
 ## 🏗️ Architecture
 
+Agentic Pilot operates on a strict **Evidence-First** execution model: *No claim without physical execution. No completion without verification.*
+
 ```mermaid
 graph TD
     UI[React Frontend] -->|HTTP/REST| API[FastAPI Backend]
     API --> Agent[LangGraph Task Runner]
-    Agent --> LLM[Ollama Local Inference]
-    Agent --> Browser[Playwright Browser Pool]
-    Agent --> Vision[Vision Fallback qwen2.5-vl]
-    Agent --> DB[(ChromaDB + SQLite)]
-    Agent --> OS[OS Keychain / Security]
+    Agent --> Plan[Ollama Reasoning / Qwen2.5]
+    Agent --> Exec[PlaywrightExecutor]
+    Exec --> Ver[VerificationManager]
+    Agent --> Mem[MemoryProvider: ChromaDB]
+    Agent --> Vis[VisionProvider: Qwen2.5-VL]
+    Agent --> Tel[TelemetryTracker & ReplaySystem]
 ```
+
+### Key Components:
+- **PlaywrightExecutor**: The dedicated physical execution layer. All browser events are run directly through Playwright natively. No mocked success states.
+- **VerificationManager**: Intercepts actions to explicitly verify changes via strict DOM checks, input assertions, and browser URL state tracking.
+- **RecoveryEngine**: A resilient strategy pipeline that escalates from retries to alternative selectors and finally to Vision-Language models on failure.
+- **Memory & Vision Providers**: Abstract interfaces connecting to ChromaDB and Ollama Vision models.
+- **Replay System**: All events securely write strict physical evidence (`before/after` screenshots, DOM snapshots, telemetry logs) to `~/.pilot/evidence/` for debugging.
 
 ## 🚀 Quick Start
 
