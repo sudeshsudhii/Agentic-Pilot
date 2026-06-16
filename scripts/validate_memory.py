@@ -1,10 +1,12 @@
 """Memory validation test suite for Agentic Pilot v1.0."""
 
 import asyncio
-from backend.memory.manager import memory_manager
+from backend.db.database import database
+from backend.memory.provider import memory_manager
 
 async def validate_memory():
     print("Validating Semantic Memory Retrieval...")
+    await database.connect()
     
     # Store a dummy preference task
     await memory_manager.summarize_task(

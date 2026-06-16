@@ -10,7 +10,7 @@ from backend.db.database import database
 
 async def run_benchmarks():
     print("Starting Benchmark Suite...")
-    await database.init()
+    await database.connect()
     runner = TaskRunner(database)
     await runner.start()
 

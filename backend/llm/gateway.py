@@ -83,17 +83,35 @@ class OllamaGateway:
     async def complete_structured(self, system: str, user: str, schema: type[BaseModel], image_bytes: bytes | None = None) -> BaseModel:
         """Return a Pydantic model parsed from an Ollama JSON-mode response."""
 
+        fields = []
+        for name, field in schema.model_fields.items():
+            type_info = "string"
+            if "int" in str(field.annotation):
+                type_info = "integer"
+            elif "float" in str(field.annotation) or "num" in str(field.annotation):
+                type_info = "number"
+            elif "bool" in str(field.annotation):
+                type_info = "boolean"
+            
+            is_optional = "None" in str(field.annotation) or "Optional" in str(field.annotation)
+            req_str = "optional" if is_optional else "REQUIRED"
+            desc = f" ({field.description})" if field.description else ""
+            fields.append(f'  "{name}": {type_info} - {req_str}{desc}')
+        
+        fields_str = "{\n" + ",\n".join(fields) + "\n}"
+        system_with_schema = system + f"\n\nYou MUST respond with a single JSON object containing exactly these fields:\n{fields_str}"
+
         prompt = user
         last_error: Exception | None = None
         for attempt in range(self.config.max_retry_count + 1):
             try:
-                raw = await self.complete(system, prompt, json_mode=True, image_bytes=image_bytes)
+                raw = await self.complete(system_with_schema, prompt, json_mode=True, image_bytes=image_bytes)
                 return parse_model_response(raw, schema)
             except ValueError as exc:
                 last_error = exc
                 prompt = (
                     user
-                    + "\n\nYour previous response was not valid JSON. "
+                    + f"\n\nYour previous response was not valid JSON or did not match the schema:\n{exc}\n"
                     + "Respond with only one JSON object matching the schema."
                 )
                 await asyncio.sleep(0.1 * (attempt + 1))

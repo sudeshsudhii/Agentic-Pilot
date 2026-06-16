@@ -1,6 +1,7 @@
 """Memory provider abstractions for Agentic Pilot."""
 
 from __future__ import annotations
+import asyncio
 import json
 import uuid
 from abc import ABC, abstractmethod
@@ -63,13 +64,16 @@ class ChromaProvider(MemoryProvider):
         )
         await database._db().commit()
         
-        self.collection.add(
-            documents=[content], metadatas=[{"type": memory_type, "task_id": task_id or ""}], ids=[memory_id],
+        await asyncio.to_thread(
+            self.collection.add,
+            documents=[content],
+            metadatas=[{"type": memory_type, "task_id": task_id or ""}],
+            ids=[memory_id],
         )
         return record
 
     async def retrieve_relevant(self, query: str, limit: int = 5) -> list[MemoryRecord]:
-        results = self.collection.query(query_texts=[query], n_results=limit)
+        results = await asyncio.to_thread(self.collection.query, query_texts=[query], n_results=limit)
         
         memory_ids = results["ids"][0] if results["ids"] else []
         if not memory_ids:

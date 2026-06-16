@@ -7,7 +7,7 @@ from backend.agent.runner import TaskRunner
 from backend.db.database import database
 
 async def run_benchmark():
-    await database.init()
+    await database.connect()
     runner = TaskRunner(database)
     await runner.start()
     

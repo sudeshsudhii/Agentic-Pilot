@@ -13,6 +13,7 @@ from backend.db.database import Database
 from backend.llm.parser import ParsedIntent
 from backend.plugins.runtime import plugin_registry
 from backend.security.approval import build_approval_prompt, requires_approval
+from backend.evidence.manager import evidence_manager
 
 
 class TaskRunner:
@@ -129,6 +130,14 @@ class TaskRunner:
 
             async for event in graph.astream(state):
                 for node_name, node_state in event.items():
+                    trace_event = {
+                        "node": node_name,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "status": node_state.get("status") or state.get("status"),
+                        "error": node_state.get("error") or state.get("error"),
+                    }
+                    evidence_manager.append_trace(task_id, trace_event)
+
                     if node_name == "parse_intent":
                         await self.db.add_event(task_id, "plan_generated", "Intent parsed", {})
                     elif node_name == "navigate":

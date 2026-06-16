@@ -5,11 +5,14 @@ import json
 import os
 from pathlib import Path
 
+from backend.config import get_config
+from backend.db.database import resolve_path
+
 from backend.agent.runner import TaskRunner
 from backend.db.database import database
 
 async def certify():
-    await database.init()
+    await database.connect()
     runner = TaskRunner(database)
     await runner.start()
 
@@ -34,7 +37,7 @@ async def certify():
                 break
                 
         # Audit evidence
-        evidence_dir = Path(f"backend/evidence/{task_id}")
+        evidence_dir = resolve_path(get_config().log_dir) / "evidence" / task_id
         has_screenshot = evidence_dir.exists() and len(list(evidence_dir.glob("*.png"))) > 0
         has_trace = (evidence_dir / "trace.json").exists()
         

@@ -8,6 +8,8 @@ HIGH_RISK_LEVELS = {"high", "critical"}
 def requires_approval(intent: ParsedIntent) -> bool:
     """Return True when a parsed intent requires explicit human approval."""
 
+    if intent.action in {"post", "send_email", "purchase", "delete", "transfer"}:
+        return True
     return intent.risk_level in HIGH_RISK_LEVELS
 
 

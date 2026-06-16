@@ -38,7 +38,9 @@ class TelemetryTracer:
             "model": model,
             "prompt_length": len(prompt),
             "response_length": len(response),
-            "latency_ms": latency_ms
+            "latency_ms": latency_ms,
+            "prompt": prompt,
+            "response": response
         })
 
     def record_browser_action(self, task_id: str, action_type: str, success: bool, duration_ms: int, error: str | None = None) -> None:

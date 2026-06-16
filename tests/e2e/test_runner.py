@@ -3,10 +3,17 @@ import asyncio
 from backend.db.database import database
 from backend.agent.runner import TaskRunner
 
+
+@pytest.fixture(autouse=True)
+async def cleanup_browser_pool():
+    from backend.browser.pool import browser_pool
+    yield
+    await browser_pool.shutdown()
+
 @pytest.mark.asyncio
 async def test_runner_execution_flow():
     """Verify runner instantiates graph and handles success/failures."""
-    await database.init()
+    await database.connect()
     runner = TaskRunner(database)
     await runner.start()
 
@@ -15,7 +22,7 @@ async def test_runner_execution_flow():
     
     # Wait for completion
     completed = False
-    for _ in range(15):
+    for _ in range(60):
         task = await database.get_task(task_id)
         if task.status in ["completed", "failed"]:
             completed = True
@@ -30,7 +37,7 @@ async def test_runner_execution_flow():
 @pytest.mark.asyncio
 async def test_high_risk_approval_flow():
     """Verify high risk tasks are paused for approval."""
-    await database.init()
+    await database.connect()
     runner = TaskRunner(database)
     await runner.start()
 

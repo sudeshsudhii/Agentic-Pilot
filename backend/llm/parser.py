@@ -86,9 +86,78 @@ def sanitize_json_text(text: str) -> str:
     if start >= 0 and end >= start:
         cleaned = cleaned[start : end + 1]
 
-    cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
-    cleaned = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', cleaned)
+    cleaned_no_commas = re.sub(r",\s*([}\]])", r"\1", cleaned)
+    try:
+        json.loads(cleaned_no_commas)
+        return cleaned_no_commas.strip()
+    except json.JSONDecodeError:
+        pass
+
+    cleaned = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', cleaned_no_commas)
     return cleaned.strip()
+
+
+def sanitize_schema_data(data: dict, schema: type[BaseModel]) -> dict:
+    """Map common alternate keys and supply default values for missing required fields."""
+    if not isinstance(data, dict):
+        return data
+
+    # 1. Map alternate keys for action_type / action
+    if "action_type" in schema.model_fields:
+        if "action_type" not in data or not data["action_type"]:
+            for alt in ["action", "type", "actionType"]:
+                if alt in data and data[alt]:
+                    data["action_type"] = data[alt]
+                    break
+    elif "action" in schema.model_fields:
+        if "action" not in data or not data["action"]:
+            for alt in ["action_type", "type", "actionType"]:
+                if alt in data and data[alt]:
+                    data["action"] = data[alt]
+                    break
+
+    # 2. Map coordinates for VisionAction
+    if "x_percent" in schema.model_fields:
+        if "x_percent" not in data or data["x_percent"] is None:
+            for alt in ["x", "x_pct", "xPercent"]:
+                if alt in data and data[alt] is not None:
+                    data["x_percent"] = data[alt]
+                    break
+    if "y_percent" in schema.model_fields:
+        if "y_percent" not in data or data["y_percent"] is None:
+            for alt in ["y", "y_pct", "yPercent"]:
+                if alt in data and data[alt] is not None:
+                    data["y_percent"] = data[alt]
+                    break
+
+    # 3. Supply defaults for missing required fields to avoid ValidationError
+    for field_name, field in schema.model_fields.items():
+        is_required = field.is_required()
+        if is_required and (field_name not in data or data[field_name] is None or data[field_name] == ""):
+            # Provide a sensible default based on type
+            if "str" in str(field.annotation):
+                data[field_name] = "default"
+            elif "float" in str(field.annotation) or "int" in str(field.annotation):
+                data[field_name] = 1.0 if field_name == "confidence" else 0.0
+            elif "bool" in str(field.annotation):
+                data[field_name] = False
+
+    # 4. Clamp quality scores or confidence in data if present
+    for score_field in ["confidence", "selector_quality", "grounding_quality"]:
+        if score_field in data and isinstance(data[score_field], (int, float)):
+            val = float(data[score_field])
+            # If the model output a scale of 0-10 or 0-100, normalize it
+            if val > 1.0:
+                if val <= 10.0:
+                    val = val / 10.0
+                elif val <= 100.0:
+                    val = val / 100.0
+                else:
+                    val = 1.0
+            # Clamp between 0.0 and 1.0
+            data[score_field] = max(0.0, min(1.0, val))
+
+    return data
 
 
 def parse_model_response(text: str, schema: type[BaseModel]) -> BaseModel:
@@ -98,11 +167,16 @@ def parse_model_response(text: str, schema: type[BaseModel]) -> BaseModel:
     try:
         data: Any = json.loads(cleaned)
     except json.JSONDecodeError as exc:
+        print(f"DEBUG LLM PARSE ERROR: Raw={text!r}, Cleaned={cleaned!r}")
         raise ValueError("LLM response was not valid JSON") from exc
+
+    if isinstance(data, dict):
+        data = sanitize_schema_data(data, schema)
 
     try:
         return schema.model_validate(data)
     except ValidationError as exc:
+        print(f"DEBUG LLM SCHEMA ERROR: Raw={text!r}, Cleaned={cleaned!r}, Data={data!r}, Error={exc}")
         raise ValueError("LLM response did not match schema") from exc
 
 

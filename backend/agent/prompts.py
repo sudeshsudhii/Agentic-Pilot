@@ -28,8 +28,10 @@ Rules:
 - Only select from the provided interactive_elements list
 - Prefer elements by aria_label or role over generic selectors
 - Never guess at elements that aren't in the list
+- If the goal is to navigate or open a site, and the Current URL matches the requested site, YOU MUST return action_type "complete"
+- If the goal is to search or extract, and you have already performed the action (e.g. Current URL or Title shows the search results), YOU MUST return action_type "complete"
 - If the goal is already complete, return action_type "complete"
-- If you cannot find the right element, return action_type "need_help"
+- If you cannot find the right element_id in the list, or if you want to click/type but don't know the element_id, YOU MUST return action_type "need_help". DO NOT return "click" or "type_text" without a valid element_id.
 - Always explain your reasoning briefly
 
 Respond with valid JSON only. No markdown.

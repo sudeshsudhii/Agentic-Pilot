@@ -15,7 +15,15 @@ class DOMExtractor:
     async def extract(self, page: Page) -> ActionManifest:
         """Extract a compact action manifest from the current page."""
 
-        raw_elements = await self._get_interactive_elements(page)
+        import asyncio
+        try:
+            raw_elements = await self._get_interactive_elements(page)
+        except Exception as e:
+            if "Execution context was destroyed" in str(e) or "Navigation" in str(e) or "Target closed" in str(e):
+                await asyncio.sleep(1.0)
+                raw_elements = await self._get_interactive_elements(page)
+            else:
+                raise
         elements = self._compress_manifest(raw_elements)
         return ActionManifest(
             url=page.url,
