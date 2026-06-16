@@ -1,21 +1,29 @@
-# 🦅 Agentic-Pilot
+# Agentic-Pilot
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Node.js 20+](https://img.shields.io/badge/node-20+-green.svg)](https://nodejs.org/)
+[![Playwright](https://img.shields.io/badge/Playwright-Automation-blueviolet)](https://playwright.dev/)
+[![Tauri](https://img.shields.io/badge/Tauri-Desktop-orange)](https://tauri.app/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Agentic-green)](https://github.com/langchain-ai/langgraph)
+
 
 > A privacy-first, fully local AI browser automation agent built with LangGraph, Playwright, and Tauri.
 
 Agentic-Pilot is a powerful local agent that automates web tasks using natural language. It runs entirely on your machine using Ollama (`qwen2.5` and `qwen2.5-vl`), ensuring your data and credentials never leave your local environment.
 
-## ✨ Features
+## Features
 
-- **🔒 Privacy First:** Credentials are saved securely. No forced cloud APIs.
-- **🧠 Local Intelligence:** Powered by local LLMs via Ollama, utilizing LangGraph for multi-step structured reasoning.
-- **🌐 Robust Automation:** Playwright browser pool for headless execution and rich DOM parsing.
-- **👁️ Vision Fallback:** Automatically falls back to Vision-Language models (VLMs) when DOM parsing fails to find interactive elements.
-- **💾 Long-Term Memory:** Semantic and episodic memory powered by ChromaDB. The agent remembers past task outcomes and uses them to plan future actions.
-- **⚡ Native Desktop Shell:** Lightweight and highly performant UI built with React and Tauri (Rust).
-- **🔌 Extensible Plugins:** Easily write Python plugins to extend the agent's capabilities.
-- **📊 Observability:** Built-in JSONL tracing for execution and LLM inference analysis.
+- **Privacy First:** Credentials are saved securely. No forced cloud APIs.
+- **Local Intelligence:** Powered by local LLMs via Ollama, utilizing LangGraph for multi-step structured reasoning.
+- **Robust Automation:** Playwright browser pool for headless execution and rich DOM parsing.
+- **Vision Fallback:** Automatically falls back to Vision-Language models (VLMs) when DOM parsing fails to find interactive elements.
+- **Long-Term Memory:** Semantic and episodic memory powered by ChromaDB. The agent remembers past task outcomes and uses them to plan future actions.
+- **Native Desktop Shell:** Lightweight and highly performant UI built with React and Tauri (Rust).
+- **Extensible Plugins:** Easily write Python plugins to extend the agent's capabilities.
+- **Observability:** Built-in JSONL tracing for execution and LLM inference analysis.
 
-## 🏗️ Architecture
+## Architecture
 
 Agentic Pilot operates on a strict **Evidence-First** execution model: *No claim without physical execution. No completion without verification.*
 
@@ -38,7 +46,7 @@ graph TD
 - **Memory & Vision Providers**: Abstract interfaces connecting to ChromaDB and Ollama Vision models.
 - **Replay System**: All events securely write strict physical evidence (`before/after` screenshots, DOM snapshots, telemetry logs) to `~/.pilot/evidence/` for debugging.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Python 3.11+, Node.js 20+, Rust/Cargo, Ollama
@@ -71,8 +79,8 @@ npm --prefix frontend run dev
 ```
 *(To run the native desktop shell, ensure Rust is installed and use `npm run tauri dev` from `src-tauri`)*
 
-## 🤝 Contributing
+## Contributing
 Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute. Be sure to review our [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## 📄 License
+## License
 MIT License - See `LICENSE` for details.
