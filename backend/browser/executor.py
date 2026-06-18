@@ -36,31 +36,37 @@ class PlaywrightExecutor:
         )
 
     async def navigate(self, page: Page, url: str) -> ActionResult:
-        """Navigate and verify URL."""
+        """Navigate and verify URL, with recovery for transient failures."""
         started = time.perf_counter()
-        try:
-            initial_url = page.url
-            await page.goto(self._normalize_url(url), wait_until="domcontentloaded", timeout=30000)
-            await verification_manager.verify_url(page, initial_url, url)
-            
-            state = await self.extractor._detect_page_state(page)
-            return ActionResult(
-                success=True,
-                action_type="navigate",
-                element_id=None,
-                error=None,
-                page_state_after=state,
-                duration_ms=int((time.perf_counter() - started) * 1000),
-            )
-        except Exception as exc:
-            return ActionResult(
-                success=False,
-                action_type="navigate",
-                element_id=None,
-                error=str(exc),
-                page_state_after="error",
-                duration_ms=int((time.perf_counter() - started) * 1000),
-            )
+        normalized_url = self._normalize_url(url)
+        initial_url = page.url
+        
+        for attempt in range(3):
+            try:
+                await page.goto(normalized_url, wait_until="domcontentloaded", timeout=15000)
+                await verification_manager.verify_url(page, initial_url, url)
+                
+                state = await self.extractor._detect_page_state(page)
+                return ActionResult(
+                    success=True,
+                    action_type="navigate",
+                    element_id=None,
+                    error=None,
+                    page_state_after=state,
+                    duration_ms=int((time.perf_counter() - started) * 1000),
+                )
+            except Exception as exc:
+                is_transient = isinstance(exc, PlaywrightTimeoutError) or "net::ERR_" in str(exc)
+                if not is_transient or attempt == 2:
+                    return ActionResult(
+                        success=False,
+                        action_type="navigate",
+                        element_id=None,
+                        error=f"Failed after {attempt + 1} attempts: {str(exc)}",
+                        page_state_after="error",
+                        duration_ms=int((time.perf_counter() - started) * 1000),
+                    )
+                await asyncio.sleep(1.0)
 
     async def scroll(self, page: Page, direction: str) -> ActionResult:
         """Scroll the page down or up."""

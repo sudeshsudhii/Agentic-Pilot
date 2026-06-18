@@ -52,6 +52,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.task_runner = TaskRunner(database, config)
     await app.state.task_runner.start()
     logger.info("Starting Pilot backend with config: %s", config.model_dump())
+
+    # Verify Ollama is reachable at startup
+    from backend.llm.gateway import OllamaGateway
+    gateway = OllamaGateway()
+    if await gateway.health_check():
+        logger.info("Ollama is reachable at %s", config.ollama_base_url)
+    else:
+        logger.critical(
+            "Ollama is NOT reachable at %s — LLM features will fail. "
+            "Start Ollama with 'ollama serve' and ensure model '%s' is pulled.",
+            config.ollama_base_url, config.ollama_model,
+        )
     try:
         yield
     finally:

@@ -35,12 +35,13 @@ class OllamaGateway:
     async def complete(self, system: str, user: str, json_mode: bool = False, image_bytes: bytes | None = None) -> str:
         """Return raw text completion content from the configured local model."""
 
+        model_name = self.config.ollama_model if image_bytes is None else self.config.ollama_vision_model
         last_error: Exception | None = None
         for attempt in range(self.config.max_retry_count + 1):
             started = time.perf_counter()
             try:
                 request = {
-                    "model": self.config.ollama_model if image_bytes is None else self.config.ollama_vision_model,
+                    "model": model_name,
                     "messages": [
                         {"role": "system", "content": system},
                     ],
@@ -55,30 +56,49 @@ class OllamaGateway:
                 response = await self._client_instance().chat(**request)
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 content = response.get("message", {}).get("content", "")
-                if self.config.debug_mode:
-                    logger.info(
-                        "ollama_call",
-                        extra={
-                            "model": self.config.ollama_model,
-                            "latency_ms": latency_ms,
-                            "tokens_in": len(system.split()) + len(user.split()),
-                            "tokens_out": len(content.split()),
-                        },
-                    )
+                logger.info(
+                    "OLLAMA_CALL model=%s latency_ms=%d tokens_in~=%d tokens_out~=%d",
+                    model_name, latency_ms,
+                    len(system.split()) + len(user.split()), len(content.split()),
+                )
                 from backend.telemetry.tracer import tracer
                 tracer.record_llm_call(
-                    task_id="global", # Can be improved by passing via context
+                    task_id="global",
                     prompt=system + "\n" + user,
                     response=content,
                     latency_ms=latency_ms,
-                    model=self.config.ollama_model if image_bytes is None else self.config.ollama_vision_model
+                    model=model_name,
                 )
                 return content
-            except (ConnectionError, OSError, TimeoutError) as exc:
+            except Exception as exc:
+                latency_ms = int((time.perf_counter() - started) * 1000)
                 last_error = exc
-                await asyncio.sleep(0.25 * (2**attempt))
+                # Determine if error is retryable
+                is_retryable = isinstance(exc, (ConnectionError, OSError, TimeoutError))
+                if not is_retryable:
+                    exc_type = type(exc).__name__
+                    exc_str = str(exc).lower()
+                    # httpx exceptions (used by ollama client internally)
+                    is_retryable = any(kw in exc_type.lower() for kw in (
+                        "connect", "timeout", "read", "pool",
+                    )) or any(kw in exc_str for kw in (
+                        "connect", "refused", "timeout", "unreachable",
+                    ))
+                backoff = 0.25 * (2 ** attempt)
+                logger.warning(
+                    "OLLAMA_RETRY attempt=%d/%d model=%s retryable=%s backoff=%.2fs error_type=%s error=%s latency_ms=%d",
+                    attempt + 1, self.config.max_retry_count + 1, model_name,
+                    is_retryable, backoff, type(exc).__name__, exc, latency_ms,
+                )
+                if not is_retryable:
+                    break
+                await asyncio.sleep(backoff)
 
-        raise RuntimeError("Ollama completion failed") from last_error
+        logger.critical(
+            "OLLAMA_EXHAUSTED model=%s retries=%d last_error=%s",
+            model_name, self.config.max_retry_count + 1, last_error,
+        )
+        raise RuntimeError(f"Ollama completion failed after {self.config.max_retry_count + 1} attempts: {last_error}") from last_error
 
     async def complete_structured(self, system: str, user: str, schema: type[BaseModel], image_bytes: bytes | None = None) -> BaseModel:
         """Return a Pydantic model parsed from an Ollama JSON-mode response."""
@@ -106,9 +126,15 @@ class OllamaGateway:
         for attempt in range(self.config.max_retry_count + 1):
             try:
                 raw = await self.complete(system_with_schema, prompt, json_mode=True, image_bytes=image_bytes)
-                return parse_model_response(raw, schema)
+                result = parse_model_response(raw, schema)
+                logger.info("OLLAMA_STRUCTURED schema=%s attempt=%d success=True", schema.__name__, attempt + 1)
+                return result
             except ValueError as exc:
                 last_error = exc
+                logger.warning(
+                    "OLLAMA_STRUCTURED_RETRY schema=%s attempt=%d/%d error=%s",
+                    schema.__name__, attempt + 1, self.config.max_retry_count + 1, exc,
+                )
                 prompt = (
                     user
                     + f"\n\nYour previous response was not valid JSON or did not match the schema:\n{exc}\n"
@@ -116,6 +142,7 @@ class OllamaGateway:
                 )
                 await asyncio.sleep(0.1 * (attempt + 1))
 
+        logger.error("OLLAMA_STRUCTURED_EXHAUSTED schema=%s retries=%d", schema.__name__, self.config.max_retry_count + 1)
         raise RuntimeError("Structured LLM response could not be parsed") from last_error
 
     async def health_check(self) -> bool:

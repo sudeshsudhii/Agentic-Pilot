@@ -1,5 +1,5 @@
 import { Bot, History, Plug, Settings as SettingsIcon, TerminalSquare } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Approval,
   PluginManifest,
@@ -35,6 +35,12 @@ export default function App() {
   const [view, setView] = useState<View>("workbench");
   const [busy, setBusy] = useState(false);
   const events = useTaskStream(currentTask?.task_id ?? null);
+  const currentTaskRef = useRef<Task | null>(null);
+
+  // Keep the ref in sync so the polling interval always sees the latest value
+  useEffect(() => {
+    currentTaskRef.current = currentTask;
+  }, [currentTask]);
 
   const active = useMemo(() => currentTask && !["completed", "failed", "cancelled"].includes(currentTask.status), [currentTask]);
 
@@ -49,8 +55,9 @@ export default function App() {
     setTasks(taskBody);
     setApprovals(approvalBody);
     setPlugins(pluginBody);
-    if (currentTask) {
-      setCurrentTask(await getTask(currentTask.task_id));
+    const taskSnapshot = currentTaskRef.current;
+    if (taskSnapshot) {
+      setCurrentTask(await getTask(taskSnapshot.task_id));
     }
   }
 

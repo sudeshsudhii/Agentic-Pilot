@@ -11,13 +11,13 @@ class PilotConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="PILOT_", extra="ignore")
 
-    ollama_base_url: str = "http://localhost:11434"
+    ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:1.5b"
     ollama_vision_model: str = "moondream"
     db_path: str = "~/.pilot/data.db"
     log_dir: str = "~/.pilot/logs"
     server_port: int = Field(default=8765, ge=1, le=65535)
-    headless_browser: bool = True
+    headless_browser: bool = False
     auto_approve_low_risk: bool = True
     approval_timeout_seconds: int = Field(default=10, ge=1)
     max_retry_count: int = Field(default=3, ge=0)

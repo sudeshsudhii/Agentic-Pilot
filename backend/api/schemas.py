@@ -17,6 +17,7 @@ class TaskCreateRequest(BaseModel):
     """Request body for creating a task."""
 
     input_text: str = Field(min_length=1)
+    session_id: str | None = None
 
 
 class TaskCreateResponse(BaseModel):
@@ -33,6 +34,7 @@ class TaskResponse(BaseModel):
     task_id: str
     input_text: str
     status: str
+    session_id: str | None = None
     risk_level: str | None = None
     parsed_intent: dict[str, Any] | None = None
     result: dict[str, Any] | None = None

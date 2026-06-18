@@ -54,6 +54,7 @@ class Database:
                 task_id TEXT PRIMARY KEY,
                 input_text TEXT NOT NULL,
                 status TEXT NOT NULL,
+                session_id TEXT,
                 risk_level TEXT,
                 parsed_intent_json TEXT,
                 result_json TEXT,
@@ -112,6 +113,12 @@ class Database:
             """
         )
         await db.commit()
+        
+        try:
+            await db.execute("ALTER TABLE tasks ADD COLUMN session_id TEXT")
+            await db.commit()
+        except aiosqlite.OperationalError:
+            pass
 
     def _db(self) -> aiosqlite.Connection:
         """Return the active connection or raise a clear startup error."""
@@ -120,16 +127,16 @@ class Database:
             raise RuntimeError("Database is not connected")
         return self.connection
 
-    async def create_task(self, task_id: str, input_text: str) -> TaskRecord:
+    async def create_task(self, task_id: str, input_text: str, session_id: str | None = None) -> TaskRecord:
         """Insert a new queued task and return it."""
 
         db = self._db()
         await db.execute(
             """
-            INSERT INTO tasks (task_id, input_text, status)
-            VALUES (?, ?, ?)
+            INSERT INTO tasks (task_id, input_text, status, session_id)
+            VALUES (?, ?, ?, ?)
             """,
-            (task_id, input_text, "queued"),
+            (task_id, input_text, "queued", session_id),
         )
         await db.commit()
         task = await self.get_task(task_id)

@@ -13,6 +13,7 @@ class TaskRecord(BaseModel):
     task_id: str
     input_text: str
     status: str
+    session_id: str | None = None
     risk_level: str | None = None
     parsed_intent: dict[str, Any] | None = None
     result: dict[str, Any] | None = None

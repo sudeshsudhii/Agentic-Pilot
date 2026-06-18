@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote_plus
 import uuid
@@ -14,6 +15,8 @@ from backend.llm.parser import ParsedIntent
 from backend.plugins.runtime import plugin_registry
 from backend.security.approval import build_approval_prompt, requires_approval
 from backend.evidence.manager import evidence_manager
+
+logger = logging.getLogger("pilot.agent.runner")
 
 
 class TaskRunner:
@@ -26,6 +29,7 @@ class TaskRunner:
         self.config = config or get_config()
         self._active: dict[str, asyncio.Task[None]] = {}
         self._started_at: dict[str, datetime] = {}
+        self._pause_events: dict[str, asyncio.Event] = {}
         self._watchdog: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -46,13 +50,15 @@ class TaskRunner:
             await asyncio.gather(*self._active.values(), return_exceptions=True)
         self._active.clear()
 
-    async def submit(self, input_text: str) -> str:
+    async def submit(self, input_text: str, session_id: str | None = None) -> str:
         """Create and schedule a task, returning its id."""
 
         task_id = str(uuid.uuid4())
-        await self.db.create_task(task_id, input_text)
+        self._pause_events[task_id] = asyncio.Event()
+        self._pause_events[task_id].set()
+        await self.db.create_task(task_id, input_text, session_id)
         await self.db.add_event(task_id, "queued", "Task queued", {"input_text": input_text})
-        self._schedule(task_id, input_text, approved=False)
+        self._schedule(task_id, input_text, approved=False, session_id=session_id)
         return task_id
 
     async def approve(self, approval_id: str, decision: str) -> str:
@@ -76,9 +82,22 @@ class TaskRunner:
             )
         return task.task_id
 
+    def pause(self, task_id: str) -> None:
+        """Pause a running task at the next node transition."""
+        if task_id in self._pause_events:
+            self._pause_events[task_id].clear()
+
+    def resume(self, task_id: str) -> None:
+        """Resume a paused task."""
+        if task_id in self._pause_events:
+            self._pause_events[task_id].set()
+
     async def cancel(self, task_id: str) -> None:
         """Cancel a running or queued task and persist the status."""
 
+        if task_id in self._pause_events:
+            self._pause_events[task_id].set()
+            
         active = self._active.pop(task_id, None)
         if active is not None:
             active.cancel()
@@ -89,13 +108,13 @@ class TaskRunner:
         )
         await self.db.add_event(task_id, "cancelled", "Task cancelled by user")
 
-    def _schedule(self, task_id: str, input_text: str, approved: bool) -> None:
+    def _schedule(self, task_id: str, input_text: str, approved: bool, session_id: str | None = None) -> None:
         """Schedule a task coroutine and track timeout metadata."""
 
         self._started_at[task_id] = datetime.now(UTC)
-        self._active[task_id] = asyncio.create_task(self._run(task_id, input_text, approved))
+        self._active[task_id] = asyncio.create_task(self._run(task_id, input_text, approved, session_id))
 
-    async def _run(self, task_id: str, input_text: str, approved: bool) -> None:
+    async def _run(self, task_id: str, input_text: str, approved: bool, session_id: str | None = None) -> None:
         """Execute a task through the LangGraph state machine."""
 
         from backend.agent.graph import build_graph
@@ -106,9 +125,7 @@ class TaskRunner:
         try:
             await self.db.update_task(task_id, status="running")
             await self.db.add_event(task_id, "started", "Task started via LangGraph")
-
-            await self.db.add_event(task_id, "browser_launching", "Browser Launching")
-            await self.db.add_event(task_id, "browser_ready", "Browser Ready")
+            logger.info("RUNNER task_starting task_id=%s input=%s", task_id, input_text[:120])
 
             state = {
                 "task_id": task_id,
@@ -126,9 +143,14 @@ class TaskRunner:
                 "llm_call_count": 0,
                 "planned_action": None,
                 "approved": approved,
+                "navigation_succeeded": False,
+                "session_id": session_id,
             }
 
             async for event in graph.astream(state):
+                if task_id in self._pause_events:
+                    await self._pause_events[task_id].wait()
+                    
                 for node_name, node_state in event.items():
                     trace_event = {
                         "node": node_name,
@@ -167,6 +189,7 @@ class TaskRunner:
         except asyncio.CancelledError:
             await self.db.add_event(task_id, "cancelled", "Task coroutine cancelled")
         except Exception as exc:
+            logger.exception("RUNNER task_failed task_id=%s error=%s error_type=%s", task_id, exc, type(exc).__name__)
             await self.db.update_task(
                 task_id,
                 status="failed",

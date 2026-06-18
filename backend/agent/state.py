@@ -25,3 +25,5 @@ class AgentState(TypedDict):
     llm_call_count: int
     planned_action: PlannedAction | None
     approved: bool
+    navigation_succeeded: bool
+    session_id: str | None

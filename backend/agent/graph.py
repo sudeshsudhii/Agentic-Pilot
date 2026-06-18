@@ -41,7 +41,13 @@ def build_graph():
 
     graph.add_conditional_edges("risk_check", risk_router)
     graph.add_edge("auth_check", "navigate")
-    graph.add_edge("navigate", "extract_dom")
+
+    def navigate_router(state: AgentState) -> str:
+        if state.get("navigation_succeeded"):
+            return "extract_dom"
+        return "error_recovery"
+
+    graph.add_conditional_edges("navigate", navigate_router)
     graph.add_edge("extract_dom", "plan_action")
     graph.add_edge("plan_action", "execute_action")
     graph.add_edge("execute_action", "verify")

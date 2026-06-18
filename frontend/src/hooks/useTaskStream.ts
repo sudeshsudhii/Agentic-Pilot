@@ -31,7 +31,18 @@ export function useTaskStream(taskId: string | null) {
       "intent_parsed",
       "approval_required",
       "approval_approved",
-      "approval_rejected"
+      "approval_rejected",
+      "BROWSER_LAUNCHED",
+      "TAB_CREATED",
+      "NAVIGATION_STARTED",
+      "NAVIGATION_COMPLETED",
+      "ACTION_CLICK",
+      "ACTION_TYPE",
+      "ACTION_SCROLL",
+      "CURRENT_URL_CHANGED",
+      "VERIFICATION_STARTED",
+      "VERIFICATION_PASSED",
+      "SCREENSHOT_TAKEN"
     ]) {
       source.addEventListener(name, appendEvent);
     }

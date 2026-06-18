@@ -6,10 +6,12 @@ import asyncio
 import json
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 from starlette.responses import StreamingResponse
 
 from backend.api.schemas import TaskCreateRequest, TaskCreateResponse, TaskEventResponse, TaskListResponse, TaskResponse
-from backend.db.models import EventRecord, TaskRecord
+from backend.db.database import EventRecord, TaskRecord
+from backend.evidence.manager import evidence_manager
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -18,7 +20,7 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 async def create_task(request_body: TaskCreateRequest, request: Request) -> TaskCreateResponse:
     """Create a background task and return stream metadata."""
 
-    task_id = await request.app.state.task_runner.submit(request_body.input_text)
+    task_id = await request.app.state.task_runner.submit(request_body.input_text, session_id=request_body.session_id)
     return TaskCreateResponse(task_id=task_id, status="queued", stream_url="/api/tasks/" + task_id + "/stream")
 
 
@@ -40,6 +42,30 @@ async def get_task(task_id: str, request: Request) -> TaskResponse:
     return _task_response(task)
 
 
+@router.post("/{task_id}/pause", response_model=TaskResponse)
+async def pause_task(task_id: str, request: Request) -> TaskResponse:
+    """Pause a running task."""
+
+    if await request.app.state.database.get_task(task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    request.app.state.task_runner.pause(task_id)
+    await request.app.state.database.add_event(task_id, "paused", "Task execution paused by user")
+    task = await request.app.state.database.get_task(task_id)
+    return _task_response(task)
+
+
+@router.post("/{task_id}/resume", response_model=TaskResponse)
+async def resume_task(task_id: str, request: Request) -> TaskResponse:
+    """Resume a paused task."""
+
+    if await request.app.state.database.get_task(task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    request.app.state.task_runner.resume(task_id)
+    await request.app.state.database.add_event(task_id, "resumed", "Task execution resumed")
+    task = await request.app.state.database.get_task(task_id)
+    return _task_response(task)
+
+
 @router.delete("/{task_id}", response_model=TaskResponse)
 async def cancel_task(task_id: str, request: Request) -> TaskResponse:
     """Cancel a task and return the updated task state."""
@@ -57,6 +83,36 @@ async def list_events(task_id: str, request: Request, after_id: int = 0) -> list
 
     events = await request.app.state.database.list_events(task_id, after_id)
     return [_event_response(event) for event in events]
+
+
+@router.get("/{task_id}/evidence/{filename}")
+async def get_evidence(task_id: str, filename: str) -> FileResponse:
+    """Serve screenshot evidence files."""
+    
+    import os
+    from pathlib import Path
+    evidence_dir = evidence_manager._get_task_dir(task_id)
+    file_path = evidence_dir / filename
+    
+    # Basic security check to prevent directory traversal
+    if not os.path.abspath(file_path).startswith(os.path.abspath(evidence_dir)):
+        raise HTTPException(status_code=403, detail="Invalid path")
+        
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Evidence not found")
+        
+    return FileResponse(file_path)
+
+
+@router.get("/{task_id}/replay")
+async def get_replay(task_id: str) -> dict:
+    """Retrieve full deterministic replay data for a task execution."""
+    from backend.replay.system import replay_system
+    
+    try:
+        return replay_system.load_replay(task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.get("/{task_id}/stream")
