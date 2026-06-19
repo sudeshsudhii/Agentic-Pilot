@@ -1,5 +1,6 @@
-import { AlertCircle, CheckCircle2, Clock3, ShieldAlert } from "lucide-react";
-import { API_BASE, Task, TaskEvent } from "../api/client";
+import { AlertCircle, CheckCircle2, Clock3, Globe, Monitor, ShieldAlert, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { API_BASE, BrowserStatus, closeBrowser, getBrowserStatus, Task, TaskEvent } from "../api/client";
 
 type Props = {
   task: Task | null;
@@ -14,6 +15,58 @@ const statusIcon = {
 };
 
 export function ExecutionPanel({ task, events }: Props) {
+  const [browserStatus, setBrowserStatus] = useState<BrowserStatus | null>(null);
+  const [closing, setClosing] = useState(false);
+
+  // Poll browser status when task is completed
+  useEffect(() => {
+    if (!task || task.status !== "completed") {
+      setBrowserStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function poll() {
+      try {
+        const status = await getBrowserStatus();
+        if (!cancelled) setBrowserStatus(status);
+      } catch {
+        if (!cancelled) setBrowserStatus(null);
+      }
+    }
+
+    poll();
+    const interval = window.setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [task?.task_id, task?.status]);
+
+  // Also react to BROWSER_CLOSED/BROWSER_TIMEOUT events
+  useEffect(() => {
+    const browserClosed = events.some(
+      (e) => e.type === "BROWSER_CLOSED" || e.type === "BROWSER_TIMEOUT"
+    );
+    if (browserClosed) {
+      setBrowserStatus((prev) => (prev ? { ...prev, open: false } : null));
+    }
+  }, [events]);
+
+  const handleCloseBrowser = useCallback(async () => {
+    if (!task?.task_id || closing) return;
+    setClosing(true);
+    try {
+      await closeBrowser(task.task_id);
+      setBrowserStatus((prev) => (prev ? { ...prev, open: false } : null));
+    } catch (err) {
+      console.error("Failed to close browser:", err);
+    } finally {
+      setClosing(false);
+    }
+  }, [task?.task_id, closing]);
+
   // Derive current state from the event stream
   const currentUrlEvent = events.slice().reverse().find(e => e.type === "CURRENT_URL_CHANGED" || e.type === "NAVIGATION_COMPLETED");
   const currentUrl = (currentUrlEvent?.payload?.url as string) || "about:blank";
@@ -33,8 +86,19 @@ export function ExecutionPanel({ task, events }: Props) {
       else if (latestEvent.type === "NAVIGATION_STARTED") browserState = "Navigating";
       else if (latestEvent.type.startsWith("ACTION_")) browserState = "Executing Action";
       else if (latestEvent.type.startsWith("VERIFICATION_")) browserState = "Verifying";
+      else if (latestEvent.type === "BROWSER_RETAINED") browserState = "Open (Retained)";
+      else if (latestEvent.type === "BROWSER_CLOSED") browserState = "Closed";
+      else if (latestEvent.type === "BROWSER_TIMEOUT") browserState = "Closed (Timeout)";
       else if (latestEvent.type === "completed") browserState = "Completed";
   }
+
+  // Format idle time
+  const formatIdleTime = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs}s`;
+  };
 
   return (
     <section className="panel execution-panel">
@@ -45,6 +109,49 @@ export function ExecutionPanel({ task, events }: Props) {
           {task?.status ?? "idle"}
         </span>
       </div>
+
+      {/* Browser Control Bar */}
+      {browserStatus?.open && task?.status === "completed" && (
+        <div className="browser-control-bar">
+          <div className="browser-status-row">
+            <span className="browser-status-indicator">
+              <Monitor size={16} />
+              <span className="browser-dot alive" />
+              Browser Open
+            </span>
+            <span className="browser-idle-time">
+              <Clock3 size={13} />
+              Idle: {formatIdleTime(browserStatus.idle_seconds)} / {browserStatus.timeout_minutes}m
+            </span>
+          </div>
+          {browserStatus.url && (
+            <div className="browser-url-row">
+              <Globe size={13} />
+              <span className="browser-url-text" title={browserStatus.url}>{browserStatus.url}</span>
+            </div>
+          )}
+          <div className="browser-actions-row">
+            <button
+              className="browser-close-btn"
+              onClick={handleCloseBrowser}
+              disabled={closing}
+              id="close-browser-btn"
+              aria-label="Close browser"
+            >
+              <X size={14} />
+              {closing ? "Closing…" : "Close Browser"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Browser Closed Banner */}
+      {browserStatus && !browserStatus.open && task?.status === "completed" && (
+        <div className="browser-closed-banner">
+          <Monitor size={16} />
+          Browser closed
+        </div>
+      )}
       
       {task ? (
         <div className="observability-banner">

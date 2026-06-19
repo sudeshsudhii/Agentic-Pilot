@@ -110,3 +110,19 @@ export async function listPlugins(): Promise<PluginManifest[]> {
   const body = await request<{ plugins: PluginManifest[] }>("/api/plugins");
   return body.plugins;
 }
+
+export type BrowserStatus = {
+  open: boolean;
+  task_id: string | null;
+  url?: string | null;
+  idle_seconds: number;
+  timeout_minutes: number;
+};
+
+export async function closeBrowser(taskId: string): Promise<{ status: string; task_id: string }> {
+  return request(`/api/tasks/${taskId}/close-browser`, { method: "POST" });
+}
+
+export async function getBrowserStatus(): Promise<BrowserStatus> {
+  return request("/api/browser/status");
+}

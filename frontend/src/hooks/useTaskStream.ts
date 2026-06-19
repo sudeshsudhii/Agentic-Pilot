@@ -42,7 +42,10 @@ export function useTaskStream(taskId: string | null) {
       "CURRENT_URL_CHANGED",
       "VERIFICATION_STARTED",
       "VERIFICATION_PASSED",
-      "SCREENSHOT_TAKEN"
+      "SCREENSHOT_TAKEN",
+      "BROWSER_RETAINED",
+      "BROWSER_CLOSED",
+      "BROWSER_TIMEOUT"
     ]) {
       source.addEventListener(name, appendEvent);
     }
