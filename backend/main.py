@@ -128,5 +128,12 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok", model=config.ollama_model)
 
 
+@app.get("/api/browser/status")
+async def browser_status() -> dict:
+    """Return the current retained browser status for the frontend."""
+
+    return browser_pool.get_browser_status()
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=config.server_port, log_level="info")

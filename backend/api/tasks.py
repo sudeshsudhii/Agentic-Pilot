@@ -9,7 +9,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from starlette.responses import StreamingResponse
 
-from backend.api.schemas import TaskCreateRequest, TaskCreateResponse, TaskEventResponse, TaskListResponse, TaskResponse
+from backend.api.schemas import BrowserStatusResponse, TaskCreateRequest, TaskCreateResponse, TaskEventResponse, TaskListResponse, TaskResponse
+from backend.browser.pool import browser_pool
 from backend.db.database import EventRecord, TaskRecord
 from backend.evidence.manager import evidence_manager
 
@@ -113,6 +114,19 @@ async def get_replay(task_id: str) -> dict:
         return replay_system.load_replay(task_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/{task_id}/close-browser")
+async def close_browser(task_id: str, request: Request) -> dict:
+    """Explicitly close the retained browser for a completed task."""
+
+    closed = await browser_pool.close_task_browser(task_id, reason="user")
+    if not closed:
+        raise HTTPException(status_code=404, detail="No open browser found for this task")
+    await request.app.state.database.add_event(
+        task_id, "BROWSER_CLOSED", "Browser closed by user"
+    )
+    return {"status": "closed", "task_id": task_id}
 
 
 @router.get("/{task_id}/stream")
