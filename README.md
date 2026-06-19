@@ -10,6 +10,10 @@
 
 > A privacy-first, fully local AI browser automation agent built with LangGraph, Playwright, and Tauri.
 
+<p align="center">
+  <img src="docs/assets/demo.webp" alt="Agentic Pilot Action Demo" width="100%">
+</p>
+
 Agentic-Pilot is a powerful local agent that automates web tasks using natural language. It runs entirely on your machine using Ollama (`qwen2.5` and `qwen2.5-vl`), ensuring your data and credentials never leave your local environment.
 
 ## Features
