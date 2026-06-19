@@ -17,6 +17,7 @@ Agentic-Pilot is a powerful local agent that automates web tasks using natural l
 - **Privacy First:** Credentials are saved securely. No forced cloud APIs.
 - **Local Intelligence:** Powered by local LLMs via Ollama, utilizing LangGraph for multi-step structured reasoning.
 - **Robust Automation:** Playwright browser pool for headless execution and rich DOM parsing.
+- **Post-Task Inspection:** The browser can optionally remain open after task completion (with an interactive control bar) to let you inspect the final state.
 - **Vision Fallback:** Automatically falls back to Vision-Language models (VLMs) when DOM parsing fails to find interactive elements.
 - **Long-Term Memory:** Semantic and episodic memory powered by ChromaDB. The agent remembers past task outcomes and uses them to plan future actions.
 - **Native Desktop Shell:** Lightweight and highly performant UI built with React and Tauri (Rust).
