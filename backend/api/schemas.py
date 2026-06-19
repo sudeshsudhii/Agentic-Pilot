@@ -131,3 +131,13 @@ class ModelPullRequest(BaseModel):
     """Request body for model download streaming."""
 
     model: str
+
+
+class BrowserStatusResponse(BaseModel):
+    """Status of the retained browser context after task completion."""
+
+    open: bool
+    task_id: str | None = None
+    url: str | None = None
+    idle_seconds: int = 0
+    timeout_minutes: int = 15

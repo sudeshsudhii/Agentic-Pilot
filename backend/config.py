@@ -25,6 +25,8 @@ class PilotConfig(BaseSettings):
     debug_mode: bool = False
     max_task_duration_minutes: int = Field(default=5, ge=1)
     browser_pool_size: int = Field(default=3, ge=1)
+    keep_browser_open: bool = True
+    browser_idle_timeout_minutes: int = Field(default=15, ge=1)
     app_version: str = "0.1.0"
 
 
