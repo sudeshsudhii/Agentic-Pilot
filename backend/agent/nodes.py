@@ -433,7 +433,7 @@ async def error_recovery_node(state: AgentState) -> dict:
 
 
 async def complete_node(state: AgentState) -> dict:
-    """Set completion state, persist result, and release browser context."""
+    """Set completion state, persist result, and manage browser context lifecycle."""
 
     final_status = state.get("status", "completed")
     if final_status == "running":
@@ -471,7 +471,24 @@ async def complete_node(state: AgentState) -> dict:
         completed_at=datetime.now(UTC).isoformat() if final_status != "waiting_approval" else None,
     )
 
-    # Release browser context (only closes if not a persistent session)
-    await browser_pool.release_task_context(state["task_id"], state.get("session_id"))
+    # Browser lifecycle: retain on success, release on failure
+    from backend.config import get_config
+    config = get_config()
+
+    if final_status == "completed" and config.keep_browser_open:
+        # Keep the browser open for user inspection
+        await browser_pool.retain_task_context(state["task_id"], state.get("session_id"))
+        await database.add_event(
+            state["task_id"],
+            "BROWSER_RETAINED",
+            "Browser kept open for inspection",
+            {"url": state.get("current_url")},
+        )
+        logger.info("NODE=complete_node BROWSER_RETAINED task_id=%s", state["task_id"])
+    else:
+        # Release browser context (closes pages) for failed/cancelled tasks
+        await browser_pool.release_task_context(state["task_id"], state.get("session_id"))
+        if final_status != "completed":
+            logger.info("NODE=complete_node BROWSER_RELEASED task_id=%s reason=task_%s", state["task_id"], final_status)
 
     return {"status": final_status}

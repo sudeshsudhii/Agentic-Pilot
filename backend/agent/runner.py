@@ -53,6 +53,10 @@ class TaskRunner:
     async def submit(self, input_text: str, session_id: str | None = None) -> str:
         """Create and schedule a task, returning its id."""
 
+        # Close any retained browsers from previous tasks for a clean slate
+        from backend.browser.pool import browser_pool
+        await browser_pool.close_all_retained(reason="new_task")
+
         task_id = str(uuid.uuid4())
         self._pause_events[task_id] = asyncio.Event()
         self._pause_events[task_id].set()
