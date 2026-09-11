@@ -53,9 +53,9 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Connection Status Badges */}
-          <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs font-mono">
+          <div className="flex items-center gap-2 sm:gap-3 text-xs font-mono shrink-0 flex-wrap sm:flex-nowrap">
             {/* Pilot Backend */}
-            <div className="flex items-center gap-2 bg-slate-900/80 border border-white/10 px-3 py-1.5 rounded-md">
+            <div className="flex items-center gap-2 bg-slate-900/80 border border-white/10 px-3 py-1.5 rounded-md shrink-0">
               <span className="text-slate-400">PILOT BACKEND:</span>
               <span className={backendOnline ? "dot-online" : "dot-offline"} />
               <span className={backendOnline ? "text-emerald-400 font-semibold" : "text-rose-400 font-semibold"}>
@@ -64,8 +64,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Event Stream */}
-            <div className="flex items-center gap-2 bg-slate-900/80 border border-white/10 px-3 py-1.5 rounded-md">
-              <Radio className="w-3.5 h-3.5 text-cyan-400" />
+            <div className="flex items-center gap-2 bg-slate-900/80 border border-white/10 px-3 py-1.5 rounded-md shrink-0">
+              <Radio className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
               <span className="text-slate-400">EVENT STREAM:</span>
               <span className={streamOnline ? "dot-online" : "dot-offline"} />
               <span className={streamOnline ? "text-emerald-400 font-semibold" : "text-rose-400 font-semibold"}>
@@ -74,16 +74,18 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Last Event */}
-            <div className="flex items-center gap-2 bg-slate-900/80 border border-white/10 px-3 py-1.5 rounded-md">
-              <Clock className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="text-slate-400">LAST EVENT:</span>
-              <span className="text-slate-200 font-medium">{formatAge(status.last_event_age_sec)}</span>
+            <div className="flex items-center gap-2 bg-slate-900/80 border border-white/10 px-3 py-1.5 rounded-md shrink-0 min-w-[170px]">
+              <Clock className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="text-slate-400 shrink-0">LAST EVENT:</span>
+              <span className="text-slate-200 font-medium tabular-nums font-mono">
+                {formatAge(status.last_event_age_sec)}
+              </span>
             </div>
 
             {(!streamOnline || !backendOnline) && (
               <button
                 onClick={onReconnect}
-                className="btn-action text-xs"
+                className="btn-action text-xs shrink-0 py-1.5 px-3"
                 title="Force reconnect to Pilot Core"
               >
                 Reconnect

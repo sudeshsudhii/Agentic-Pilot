@@ -79,29 +79,46 @@ export const App: React.FC = () => {
   const reconnectTimeoutRef = useRef<any>(null);
   const backoffRef = useRef<number>(1000);
 
-  // Poll system status and metrics every 2.5s
+  // Poll system status and metrics every 5s with equality check to prevent needless re-renders
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/status");
       if (res.ok) {
         const data: SystemStatus = await res.json();
-        setStatus(data);
+        setStatus((prev) => {
+          if (
+            prev.pilot_backend_connected === data.pilot_backend_connected &&
+            prev.event_stream_connected === data.event_stream_connected &&
+            prev.active_run_id === data.active_run_id &&
+            prev.event_buffer_size === data.event_buffer_size &&
+            prev.last_event_timestamp === data.last_event_timestamp &&
+            Math.abs((prev.last_event_age_sec ?? 0) - (data.last_event_age_sec ?? 0)) < 1
+          ) {
+            return prev;
+          }
+          return data;
+        });
         if (data.active_run_id && !activeRunId) {
           setActiveRunId(data.active_run_id);
         }
       }
     } catch {
-      setStatus((prev) => ({
-        ...prev,
-        pilot_backend_connected: false,
-        event_stream_connected: false,
-      }));
+      setStatus((prev) => {
+        if (!prev.pilot_backend_connected && !prev.event_stream_connected) {
+          return prev;
+        }
+        return {
+          ...prev,
+          pilot_backend_connected: false,
+          event_stream_connected: false,
+        };
+      });
     }
   }, [activeRunId]);
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 2500);
+    const interval = setInterval(fetchStatus, 5000);
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
@@ -112,37 +129,73 @@ export const App: React.FC = () => {
       try {
         const res = await fetch(`/api/runs/${activeRunId}/performance`);
         if (res.ok) {
-          const p = await res.json();
-          setMetrics(p);
+          const p: PerformanceMetrics = await res.json();
+          setMetrics((prev) => {
+            if (
+              prev.total_duration_sec === p.total_duration_sec &&
+              prev.planner_duration_sec === p.planner_duration_sec &&
+              prev.vision_duration_sec === p.vision_duration_sec &&
+              prev.browser_duration_sec === p.browser_duration_sec &&
+              prev.model_latencies.length === p.model_latencies.length
+            ) {
+              return prev;
+            }
+            return p;
+          });
         }
       } catch {}
     };
     fetchPerf();
   }, [activeRunId, events.length]);
 
-  // Connect WebSocket to Observatory Backend (port 8766 proxy or direct)
+  // Connect WebSocket to Observatory Backend directly on port 8766 to avoid Vite proxy drops
   const connectWebSocket = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
     if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.onerror = null;
       wsRef.current.close();
       wsRef.current = null;
     }
 
-    const host = window.location.host;
-    // Connect to /ws on same host (proxied to 8766 by Vite)
-    const wsUrl = `ws://${host}/ws`;
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const hostname = window.location.hostname || "127.0.0.1";
+    // Connect directly to Observatory backend on 8766 in dev to bypass Vite proxy disconnects
+    const wsUrl =
+      window.location.port === "3001" || hostname === "localhost" || hostname === "127.0.0.1"
+        ? `${proto}//${hostname}:8766/ws`
+        : `${proto}//${window.location.host}/ws`;
 
     try {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
+      let pingTimer: any = null;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         backoffRef.current = 1000;
         setStatus((s) => ({ ...s, event_stream_connected: true, pilot_backend_connected: true }));
+        // Keepalive ping every 10s
+        pingTimer = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send("ping");
+            } catch {}
+          }
+        }, 10000);
       };
 
       ws.onmessage = (event) => {
         try {
+          if (event.data === "pong" || event.data === '{"type":"pong"}' || event.data === '{"type": "pong"}') {
+            return;
+          }
           const data = JSON.parse(event.data);
+          if (data.type === "pong") return;
+
           if (data.event_type || data.event_id) {
             const obsEvent: ObservatoryEvent = {
               event_id: String(data.event_id || Date.now()),
@@ -178,15 +231,21 @@ export const App: React.FC = () => {
       };
 
       ws.onclose = () => {
+        if (pingTimer) clearInterval(pingTimer);
+        if (wsRef.current !== ws) return;
         setStatus((s) => ({ ...s, event_stream_connected: false }));
         // Exponential backoff reconnect
         reconnectTimeoutRef.current = setTimeout(() => {
-          backoffRef.current = Math.min(8000, backoffRef.current * 1.5);
-          connectWebSocket();
+          if (wsRef.current === ws || !wsRef.current) {
+            backoffRef.current = Math.min(8000, backoffRef.current * 1.5);
+            connectWebSocket();
+          }
         }, backoffRef.current);
       };
 
       ws.onerror = () => {
+        if (pingTimer) clearInterval(pingTimer);
+        if (wsRef.current !== ws) return;
         ws.close();
       };
     } catch {
@@ -197,8 +256,13 @@ export const App: React.FC = () => {
   useEffect(() => {
     connectWebSocket();
     return () => {
-      if (wsRef.current) wsRef.current.close();
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.onerror = null;
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [connectWebSocket]);
 
