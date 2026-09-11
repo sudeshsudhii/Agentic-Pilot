@@ -327,7 +327,7 @@ Here is a verified task demonstrating the DOM-first grounding, keystroke typing,
 
 ### Task Prompt
 ```
-Open https://cp.sudhii.in
+Open https://vault.example.com
 
 Find the main text input field.
 
@@ -341,7 +341,7 @@ Verify the exact text.
 ```
 
 ### Execution Progression
-1. **Navigate**: Opens `https://cp.sudhii.in/` and waits for DOM ready state.
+1. **Navigate**: Opens `https://vault.example.com/` and waits for DOM ready state.
 2. **Observe**: Scans interactive DOM elements; takes pre-action screenshot.
 3. **Ground**: Semantic heuristics identify the primary textarea (`pilot-el-10`).
 4. **Type**: Dispatches text without triggering form submission or Enter keys.

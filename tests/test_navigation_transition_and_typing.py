@@ -49,7 +49,7 @@ async def setup_test_db(tmp_path):
     # Create test task so foreign key constraint in task_events succeeds
     await database.create_task(
         "test-task-cp",
-        "Open https://cp.sudhii.in\nFind the main text input field.\nEnter exactly:\nhii i am agentic ai powered by local llm qwen\nDo NOT click Save.\nDo NOT submit.\nDo NOT modify anything else."
+        "Open https://vault.example.com\nFind the main text input field.\nEnter exactly:\nhii i am agentic ai powered by local llm qwen\nDo NOT click Save.\nDo NOT submit.\nDo NOT modify anything else."
     )
     yield
     await database.close()
@@ -60,7 +60,7 @@ def make_test_state(**kwargs) -> dict:
     default_state = {
         "task_id": "test-task-cp",
         "input_text": (
-            "Open https://cp.sudhii.in\n"
+            "Open https://vault.example.com\n"
             "Find the main text input field.\n"
             "Enter exactly:\n"
             "hii i am agentic ai powered by local llm qwen\n"
@@ -70,14 +70,14 @@ def make_test_state(**kwargs) -> dict:
         ),
         "parsed_intent": ParsedIntent(
             action="type_text",
-            site="https://cp.sudhii.in",
+            site="https://vault.example.com",
             target="main text input",
             content="hii i am agentic ai powered by local llm qwen",
             risk_level="low",
             confidence=0.95,
-            reasoning="Navigate to cp.sudhii.in and enter exact text",
+            reasoning="Navigate to vault.example.com and enter exact text",
         ),
-        "current_url": "https://cp.sudhii.in/",
+        "current_url": "https://vault.example.com/",
         "action_manifest": None,
         "action_history": [],
         "retry_count": 0,
@@ -92,14 +92,14 @@ def make_test_state(**kwargs) -> dict:
         "navigation_succeeded": False,
         "session_id": "session-cp",
         "task_plan": TaskPlan(
-            task_summary="Enter text into main input on https://cp.sudhii.in",
+            task_summary="Enter text into main input on https://vault.example.com",
             total_steps=1,
             current_step_index=1,
             steps=[
                 TaskStep(
                     step_index=1,
                     description="Enter text into main input",
-                    target="https://cp.sudhii.in",
+                    target="https://vault.example.com",
                     action_type="type_text",
                     expected_outcome="Exact text entered into main text input",
                     status="pending",
@@ -127,9 +127,9 @@ def make_test_state(**kwargs) -> dict:
 
 
 def make_sample_manifest() -> ActionManifest:
-    """Create sample ActionManifest modeled after cp.sudhii.in."""
+    """Create sample ActionManifest modeled after vault.example.com."""
     return ActionManifest(
-        url="https://cp.sudhii.in/",
+        url="https://vault.example.com/",
         page_title="Control Plane",
         page_state="ready",
         interactive_elements=[
@@ -175,7 +175,7 @@ async def test_1_successful_navigation_transitions_to_observation():
 
     state = make_test_state()
     async def fake_navigate(p, u):
-        mock_page.url = "https://cp.sudhii.in/"
+        mock_page.url = "https://vault.example.com/"
         return ActionResult(success=True, action_type="navigate", page_state_after="ready", duration_ms=200)
 
     mock_executor = MagicMock()
@@ -188,7 +188,7 @@ async def test_1_successful_navigation_transitions_to_observation():
 
     assert result_state["navigation_succeeded"] is True
     assert result_state["last_action_status"] == "succeeded"
-    assert result_state["current_url"] == "https://cp.sudhii.in/"
+    assert result_state["current_url"] == "https://vault.example.com/"
 
     events = await database.list_events(state["task_id"])
     event_types = [e.type for e in events]
@@ -208,10 +208,10 @@ async def test_1_successful_navigation_transitions_to_observation():
 async def test_2_navigation_is_not_repeated_indefinitely():
     """When already at target URL with navigation_succeeded, navigation is skipped."""
     mock_page = AsyncMock()
-    mock_page.url = "https://cp.sudhii.in/"
+    mock_page.url = "https://vault.example.com/"
 
     state = make_test_state(
-        current_url="https://cp.sudhii.in/",
+        current_url="https://vault.example.com/",
         navigation_succeeded=True,
     )
     mock_executor = MagicMock()
@@ -228,7 +228,7 @@ async def test_2_navigation_is_not_repeated_indefinitely():
     # Loop protection in plan_action_node
     manifest = make_sample_manifest()
     state["action_manifest"] = manifest
-    with patch("backend.agent.nodes.OllamaGateway.complete_structured", AsyncMock(return_value=PlannedAction(action_type="navigate", url="https://cp.sudhii.in", reasoning="Navigate again"))):
+    with patch("backend.agent.nodes.OllamaGateway.complete_structured", AsyncMock(return_value=PlannedAction(action_type="navigate", url="https://vault.example.com", reasoning="Navigate again"))):
         plan_res = await plan_action_node(state)
         # Action must NOT remain navigate to target
         assert plan_res["planned_action"].action_type != "navigate"
@@ -253,7 +253,7 @@ def test_3_input_field_is_identified():
 async def test_4_type_text_executes():
     """type_text executes on target element and respects do not submit instruction."""
     mock_page = AsyncMock()
-    mock_page.url = "https://cp.sudhii.in/"
+    mock_page.url = "https://vault.example.com/"
     mock_page.evaluate = AsyncMock(return_value="hii i am agentic ai powered by local llm qwen")
 
     manifest = make_sample_manifest()
@@ -299,7 +299,7 @@ async def test_4_type_text_executes():
 async def test_5_screenshot_is_captured_after_typing():
     """Post-action screenshot and DOM observation are captured after typing."""
     mock_page = AsyncMock()
-    mock_page.url = "https://cp.sudhii.in/"
+    mock_page.url = "https://vault.example.com/"
     mock_page.evaluate = AsyncMock(return_value="hii i am agentic ai powered by local llm qwen")
 
     manifest = make_sample_manifest()
@@ -336,7 +336,7 @@ async def test_5_screenshot_is_captured_after_typing():
 async def test_6_exact_text_verification_succeeds():
     """When exact requested text is present in the DOM input, verification passes."""
     mock_page = AsyncMock()
-    mock_page.url = "https://cp.sudhii.in/"
+    mock_page.url = "https://vault.example.com/"
     mock_page.title = AsyncMock(return_value="Control Plane")
     # Simulate page evaluate returning input values containing the exact text
     mock_page.evaluate = AsyncMock(return_value=["hii i am agentic ai powered by local llm qwen"])
@@ -344,10 +344,10 @@ async def test_6_exact_text_verification_succeeds():
     v_res = await verification_manager.verify_task_completion(
         page=mock_page,
         intent_action="type_text",
-        intent_site="https://cp.sudhii.in",
-        current_url="https://cp.sudhii.in/",
+        intent_site="https://vault.example.com",
+        current_url="https://vault.example.com/",
         navigation_succeeded=True,
-        input_text="Open https://cp.sudhii.in and enter exactly:\nhii i am agentic ai powered by local llm qwen\nDo NOT click Save.",
+        input_text="Open https://vault.example.com and enter exactly:\nhii i am agentic ai powered by local llm qwen\nDo NOT click Save.",
         task_plan=None,
     )
     assert v_res.verified is True
@@ -361,7 +361,7 @@ async def test_6_exact_text_verification_succeeds():
 async def test_7_task_completes_only_after_verification():
     """verify_node transitions status to completed only when exact text is verified."""
     mock_page = AsyncMock()
-    mock_page.url = "https://cp.sudhii.in/"
+    mock_page.url = "https://vault.example.com/"
     mock_page.title = AsyncMock(return_value="Control Plane")
     mock_page.evaluate = AsyncMock(return_value=["hii i am agentic ai powered by local llm qwen"])
 
@@ -389,7 +389,7 @@ async def test_7_task_completes_only_after_verification():
 async def test_8_task_does_not_complete_after_navigation_alone():
     """Reaching target URL without typing the required text rejects completion."""
     mock_page = AsyncMock()
-    mock_page.url = "https://cp.sudhii.in/"
+    mock_page.url = "https://vault.example.com/"
     mock_page.title = AsyncMock(return_value="Control Plane")
     # Empty inputs on landing
     mock_page.evaluate = AsyncMock(return_value=[])
@@ -397,10 +397,10 @@ async def test_8_task_does_not_complete_after_navigation_alone():
     v_res = await verification_manager.verify_task_completion(
         page=mock_page,
         intent_action="navigate",
-        intent_site="https://cp.sudhii.in",
-        current_url="https://cp.sudhii.in/",
+        intent_site="https://vault.example.com",
+        current_url="https://vault.example.com/",
         navigation_succeeded=True,
-        input_text="Open https://cp.sudhii.in and enter exactly:\nhii i am agentic ai powered by local llm qwen\nDo NOT click Save.",
+        input_text="Open https://vault.example.com and enter exactly:\nhii i am agentic ai powered by local llm qwen\nDo NOT click Save.",
         task_plan=None,
     )
     assert v_res.verified is False
@@ -414,7 +414,7 @@ async def test_8_task_does_not_complete_after_navigation_alone():
 async def test_9_task_does_not_complete_after_type_text_alone():
     """Even if type_text returned success, if DOM verification fails, task remains running."""
     mock_page = AsyncMock()
-    mock_page.url = "https://cp.sudhii.in/"
+    mock_page.url = "https://vault.example.com/"
     mock_page.title = AsyncMock(return_value="Control Plane")
     # DOM evaluation returns mismatched text
     mock_page.evaluate = AsyncMock(return_value=["mismatched text"])
@@ -442,7 +442,7 @@ async def test_9_task_does_not_complete_after_type_text_alone():
 async def test_10_vision_invocation_is_separately_verified_from_screenshot_capture():
     """Taking a screenshot does not falsely report vision_called = True."""
     mock_page = AsyncMock()
-    mock_page.url = "https://cp.sudhii.in/"
+    mock_page.url = "https://vault.example.com/"
 
     manifest = make_sample_manifest()
     # Case A: DOM identification succeeds deterministically -> Vision is NOT called
@@ -455,7 +455,7 @@ async def test_10_vision_invocation_is_separately_verified_from_screenshot_captu
         assert plan_res["planned_action"].element_id == "pilot-el-10"
 
     # Case B: Empty manifest forces vision fallback -> Vision IS called
-    empty_manifest = ActionManifest(url="https://cp.sudhii.in/", page_title="Empty", page_state="ready", interactive_elements=[])
+    empty_manifest = ActionManifest(url="https://vault.example.com/", page_title="Empty", page_state="ready", interactive_elements=[])
     state_empty = make_test_state(action_manifest=empty_manifest)
     mock_vision_action = PlannedAction(action_type="type_text", reasoning="0.5,0.5")
     mock_executor = MagicMock()

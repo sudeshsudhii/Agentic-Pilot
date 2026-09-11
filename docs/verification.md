@@ -56,7 +56,7 @@ class VerificationResult(BaseModel):
 ### Concrete Verification Example
 
 **User Instruction:**
-> "Open https://cp.sudhii.in, find the main text input, and type: 'hii i am agentic ai'. Do NOT click Save. Verify the exact text."
+> "Open https://vault.example.com, find the main text input, and type: 'hii i am agentic ai'. Do NOT click Save. Verify the exact text."
 
 **Observed Evaluation:**
 ```json
@@ -69,8 +69,8 @@ class VerificationResult(BaseModel):
     "text_verified": "hii i am agentic ai"
   },
   "observed_state": {
-    "page_title": "Personal Vault",
-    "page_url": "https://cp.sudhii.in/",
+    "page_title": "Example Vault",
+    "page_url": "https://vault.example.com/",
     "page_responsive": true,
     "has_error_state": false,
     "text_verified": "hii i am agentic ai",

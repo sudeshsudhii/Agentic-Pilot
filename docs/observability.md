@@ -58,7 +58,7 @@ Telemetry events are structured as `ObservatoryEvent` objects:
   "metadata": {
     "verified": true,
     "confidence": 1.0,
-    "url": "https://cp.sudhii.in/",
+    "url": "https://vault.example.com/",
     "text_verified": "hii i am agentic ai powered by local llm qwen"
   }
 }
