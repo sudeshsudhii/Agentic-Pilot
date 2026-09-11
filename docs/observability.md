@@ -2,6 +2,10 @@
 
 The **Pilot Agent Observatory** is a dedicated, real-time developer telemetry application that provides full internal visibility into agent reasoning, browser operations, DOM interactions, and verification lifecycles.
 
+<p align="center">
+  <img src="images/observatory_preview.png" alt="Pilot Agent Observatory Dashboard" width="100%">
+</p>
+
 ---
 
 ## 1. Network & Port Architecture
