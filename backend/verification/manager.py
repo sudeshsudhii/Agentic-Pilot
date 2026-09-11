@@ -37,7 +37,7 @@ def extract_exact_text_to_type(prompt: str) -> str | None:
     m4 = re.search(r'(?:type|enter)\s+(.+?)(?:\s+(?:into|in)\s+|$)', prompt, re.IGNORECASE)
     if m4:
         cand = m4.group(1).strip()
-        if cand and not any(kw in cand.lower() for kw in ['url', 'http', 'page', 'google', 'cp.sudhii']):
+        if cand and not any(kw in cand.lower() for kw in ['url', 'http', 'page', 'google', 'vault.example']):
             return cand
     return None
 

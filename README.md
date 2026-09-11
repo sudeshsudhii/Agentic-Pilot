@@ -7,8 +7,11 @@
 [![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-orange.svg)](https://github.com/langchain-ai/langgraph)
 [![Local LLM](https://img.shields.io/badge/Inference-Ollama%20%7C%20Qwen-blue.svg)](https://ollama.com)
 [![Observability](https://img.shields.io/badge/Observability-Agent%20Observatory-6366f1.svg)](docs/observability.md)
+[![Wiki](https://img.shields.io/badge/Documentation-GitHub%20Wiki-792ee5.svg)](wiki/Home.md)
 
 > **An Evidence-Driven, Privacy-Preserving Local Autonomous AI Agent Framework for Intelligent Task Automation.**
+
+📖 **[Explore the 17-Page Technical Wiki](wiki/Home.md)**: Comprehensive architectural deep dives, state lifecycle specifications, model routing benchmarks, and troubleshooting playbooks.
 
 <p align="center">
   <img src="docs/assets/demo.webp" alt="Agentic Pilot Browser Automation Demo" width="100%">
