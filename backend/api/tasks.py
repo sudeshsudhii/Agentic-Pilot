@@ -55,16 +55,48 @@ async def pause_task(task_id: str, request: Request) -> TaskResponse:
     return _task_response(task)
 
 
+from pydantic import BaseModel
+
+
+class FallbackRequest(BaseModel):
+    provider: str = "duckduckgo"
+
+
 @router.post("/{task_id}/resume", response_model=TaskResponse)
 async def resume_task(task_id: str, request: Request) -> TaskResponse:
-    """Resume a paused task."""
+    """Resume a paused or blocked task."""
 
-    if await request.app.state.database.get_task(task_id) is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    request.app.state.task_runner.resume(task_id)
-    await request.app.state.database.add_event(task_id, "resumed", "Task execution resumed")
     task = await request.app.state.database.get_task(task_id)
-    return _task_response(task)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if task.status == "blocked":
+        success, msg = await request.app.state.task_runner.resume_blocked(task_id)
+        if not success:
+            raise HTTPException(status_code=400, detail=msg)
+    else:
+        request.app.state.task_runner.resume(task_id)
+        await request.app.state.database.add_event(task_id, "resumed", "Task execution resumed")
+
+    updated_task = await request.app.state.database.get_task(task_id)
+    return _task_response(updated_task)
+
+
+@router.post("/{task_id}/fallback", response_model=TaskResponse)
+async def fallback_task(task_id: str, request: Request, body: FallbackRequest | None = None) -> TaskResponse:
+    """Switch a blocked task to an alternative search provider."""
+
+    task = await request.app.state.database.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    provider = (body.provider if body else "duckduckgo") or "duckduckgo"
+    success, msg = await request.app.state.task_runner.switch_fallback(task_id, provider=provider)
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+
+    updated_task = await request.app.state.database.get_task(task_id)
+    return _task_response(updated_task)
 
 
 @router.delete("/{task_id}", response_model=TaskResponse)

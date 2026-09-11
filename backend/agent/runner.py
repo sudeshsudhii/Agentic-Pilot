@@ -38,6 +38,13 @@ class TaskRunner:
         if self._watchdog is None:
             self._watchdog = asyncio.create_task(self._timeout_watchdog())
 
+        from backend.llm.registry import model_registry
+        if not model_registry._installed_cache:
+            try:
+                await model_registry.probe_installed()
+            except Exception:
+                pass
+
     async def shutdown(self) -> None:
         """Cancel active runner tasks and stop background maintenance."""
 
@@ -96,6 +103,91 @@ class TaskRunner:
         if task_id in self._pause_events:
             self._pause_events[task_id].set()
 
+    async def resume_blocked(self, task_id: str) -> tuple[bool, str]:
+        """Verify if CAPTCHA is cleared, and resume the task from the current step."""
+        task = await self.db.get_task(task_id)
+        if not task:
+            return False, "Task not found"
+        if task.status != "blocked":
+            return False, f"Task is not blocked (current status: {task.status})"
+
+        from backend.browser.pool import browser_pool
+        from backend.browser.dom import detect_captcha
+        context = await browser_pool.get_task_context(task_id, task.session_id)
+        if not context.pages:
+            return False, "No active browser page found for task"
+        page = context.pages[0]
+
+        is_captcha, reason = await detect_captcha(page)
+        if is_captcha or "/sorry/" in page.url.lower():
+            logger.info("RESUME_BLOCKED check: CAPTCHA is still present on page (%s)", page.url)
+            await self.db.add_event(
+                task_id,
+                "CAPTCHA_CHECK",
+                "CAPTCHA is still present; please complete verification in the browser before resuming",
+                {"url": page.url, "reason": reason},
+            )
+            return False, f"CAPTCHA is still present: {reason}. Please complete the verification in the browser."
+
+        logger.info("[CAPTCHA CLEARED]\nTask %s resuming existing step", task_id)
+        await self.db.add_event(task_id, "CAPTCHA_CLEARED", "CAPTCHA cleared, resuming current step", {"url": page.url})
+        await self.db.update_task(task_id, status="queued")
+
+        self._pause_events[task_id] = asyncio.Event()
+        self._pause_events[task_id].set()
+        self._schedule(task_id, task.input_text, approved=True, session_id=task.session_id)
+        return True, "CAPTCHA cleared; task resumed from current step."
+
+    async def switch_fallback(self, task_id: str, provider: str = "duckduckgo") -> tuple[bool, str]:
+        """Switch to a safe search fallback provider and resume task execution."""
+        task = await self.db.get_task(task_id)
+        if not task:
+            return False, "Task not found"
+        if task.status != "blocked":
+            return False, f"Task is not blocked (current status: {task.status})"
+
+        from backend.agent.checkpoint import checkpoint_manager
+        from backend.agent.nodes import extract_clean_search_query
+        from backend.browser.pool import browser_pool
+        from urllib.parse import quote_plus
+
+        clean_query = extract_clean_search_query(task.input_text, default="search query")
+        fallback_url = (
+            f"https://html.duckduckgo.com/html/?q={quote_plus(clean_query)}"
+            if provider.lower() == "duckduckgo"
+            else f"https://www.bing.com/search?q={quote_plus(clean_query)}"
+        )
+
+        logger.warning(
+            "[FALLBACK]\nGoogle blocked by CAPTCHA\nSwitching to %s",
+            provider,
+        )
+        await self.db.add_event(
+            task_id,
+            "FALLBACK",
+            f"Google blocked by CAPTCHA. Switching to {provider}",
+            {"provider": provider, "query": clean_query, "url": fallback_url},
+        )
+
+        context = await browser_pool.get_task_context(task_id, task.session_id)
+        if context.pages:
+            page = context.pages[0]
+            try:
+                await page.goto(fallback_url, timeout=15000)
+            except Exception as e:
+                logger.warning("Fallback navigation error: %s", e)
+
+        ckpt = checkpoint_manager.load_checkpoint(task_id)
+        if ckpt:
+            ckpt.current_url = fallback_url
+            checkpoint_manager.save_checkpoint(task_id, ckpt.model_dump(), current_node="navigate")
+
+        await self.db.update_task(task_id, status="queued")
+        self._pause_events[task_id] = asyncio.Event()
+        self._pause_events[task_id].set()
+        self._schedule(task_id, task.input_text, approved=True, session_id=task.session_id)
+        return True, f"Switched to {provider} and resumed search."
+
     async def cancel(self, task_id: str) -> None:
         """Cancel a running or queued task and persist the status."""
 
@@ -129,26 +221,54 @@ class TaskRunner:
         try:
             await self.db.update_task(task_id, status="running")
             await self.db.add_event(task_id, "started", "Task started via LangGraph")
+            await self.db.add_event(task_id, "TASK_STARTED", f"Task execution started: {input_text[:100]}", {"input_text": input_text, "status": "running"})
             logger.info("RUNNER task_starting task_id=%s input=%s", task_id, input_text[:120])
+
+            from backend.agent.checkpoint import checkpoint_manager
+            from backend.llm.parser import ParsedIntent, TaskPlan
+            ckpt = checkpoint_manager.load_checkpoint(task_id)
+
+            restored_intent = None
+            if ckpt and ckpt.parsed_intent:
+                restored_intent = ParsedIntent(**ckpt.parsed_intent) if isinstance(ckpt.parsed_intent, dict) else ckpt.parsed_intent
+
+            restored_plan = None
+            if ckpt and ckpt.task_plan:
+                restored_plan = TaskPlan(**ckpt.task_plan) if isinstance(ckpt.task_plan, dict) else ckpt.task_plan
+
+            restored_plugin_id = getattr(ckpt, "plugin_id", None) if ckpt else None
+            if not restored_plugin_id and restored_intent:
+                found_plugin = plugin_registry.find_for_intent(restored_intent)
+                if found_plugin:
+                    restored_plugin_id = found_plugin.plugin_id
 
             state = {
                 "task_id": task_id,
                 "input_text": input_text,
-                "parsed_intent": None,
-                "current_url": None,
+                "parsed_intent": restored_intent,
+                "current_url": ckpt.current_url if ckpt else None,
                 "action_manifest": None,
                 "action_history": [],
-                "retry_count": 0,
+                "retry_count": ckpt.retry_count if ckpt else 0,
                 "status": "running",
                 "approval_id": None,
                 "error": None,
                 "result": None,
-                "plugin_id": None,
-                "llm_call_count": 0,
+                "plugin_id": restored_plugin_id,
+                "llm_call_count": ckpt.llm_call_count if ckpt else 0,
                 "planned_action": None,
                 "approved": approved,
                 "navigation_succeeded": False,
                 "session_id": session_id,
+                "task_plan": restored_plan,
+                "current_step_index": ckpt.current_step_index if ckpt else 1,
+                "retrieved_knowledge": ckpt.retrieved_knowledge if ckpt and ckpt.retrieved_knowledge else [],
+                "retrieved_memories": ckpt.retrieved_memories if ckpt and ckpt.retrieved_memories else [],
+                "retrieval_metadata": ckpt.retrieval_metadata if ckpt else {},
+                "selected_model": ckpt.selected_model if ckpt else None,
+                "model_role": ckpt.model_role if ckpt else None,
+                "routing_reason": ckpt.routing_reason if ckpt else None,
+                "model_switch": False,
             }
 
             async for event in graph.astream(state):
@@ -170,11 +290,20 @@ class TaskRunner:
                         await self.db.add_event(task_id, "page_loaded", "Page loaded", {})
                     elif node_name == "extract_dom":
                         await self.db.add_event(task_id, "dom_extracted", "DOM Extracted", {})
+                    elif node_name == "retrieve_context":
+                        await self.db.add_event(task_id, "context_retrieved", "Context Retrieved", {
+                            "rag_retrieved": len(node_state.get("retrieved_knowledge", [])),
+                            "memories_retrieved": len(node_state.get("retrieved_memories", [])),
+                        })
                     elif node_name == "plan_action":
-                        await self.db.add_event(task_id, "action_executing", "Action Executing", {})
+                        await self.db.add_event(task_id, "action_executing", "Action Executing", {
+                            "model": node_state.get("selected_model"),
+                            "role": node_state.get("model_role"),
+                        })
                     elif node_name == "execute_action":
                         await self.db.add_event(task_id, "evidence_stored", "Action Verified and Evidence Stored", {})
                     state.update(node_state)
+                    checkpoint_manager.save_checkpoint(task_id, state, current_node=node_name)
 
             final_state = state
             
@@ -186,9 +315,31 @@ class TaskRunner:
                 await memory_manager.summarize_task(task_id, final_state.get("result") or {}, input_text)
                 
                 if final_state.get("status") == "completed":
+                    checkpoint_manager.clear_checkpoint(task_id)
                     await self.db.add_event(task_id, "completed", "Task Completed", final_state.get("result") or {})
+                    await self.db.add_event(task_id, "TASK_COMPLETED", "Task execution completed successfully", final_state.get("result") or {})
                 elif final_state.get("status") == "failed":
                     await self.db.add_event(task_id, "failed", "Task failed", {"error": final_state.get("error")})
+                elif final_state.get("status") == "blocked":
+                    await self.db.add_event(
+                        task_id,
+                        "blocked",
+                        "Task blocked by CAPTCHA / bot verification",
+                        {"error": final_state.get("error"), "blocked_reason": final_state.get("blocked_reason") or "CAPTCHA / bot verification detected"},
+                    )
+
+                # Record task summary in telemetry tracer (R14)
+                from backend.telemetry.tracer import tracer
+                duration_ms = 0
+                if task_id in self._started_at:
+                    duration_ms = int((datetime.now(UTC) - self._started_at[task_id]).total_seconds() * 1000)
+                tracer.record_task_summary(
+                    task_id=task_id,
+                    status=final_state.get("status", "unknown"),
+                    duration_ms=duration_ms,
+                    step_count=final_state.get("llm_call_count", 0),
+                    error=final_state.get("error"),
+                )
 
         except asyncio.CancelledError:
             await self.db.add_event(task_id, "cancelled", "Task coroutine cancelled")
@@ -201,6 +352,9 @@ class TaskRunner:
                 completed_at=datetime.now(UTC).isoformat(),
             )
             await self.db.add_event(task_id, "failed", "Task failed", {"error": str(exc)})
+            from backend.telemetry.tracer import tracer
+            tracer.record_task_summary(task_id=task_id, status="failed", duration_ms=0, step_count=0, error=str(exc))
+
         finally:
             self._active.pop(task_id, None)
             self._started_at.pop(task_id, None)

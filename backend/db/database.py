@@ -200,6 +200,35 @@ class Database:
     ) -> EventRecord:
         """Persist a task event and return it."""
 
+        if self.connection is None:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            event_record = EventRecord(
+                id=999999,
+                task_id=task_id,
+                type=event_type,
+                message=message,
+                payload=payload,
+                created_at=now,
+            )
+            try:
+                from backend.telemetry.broadcaster import ObservatoryEvent, broadcaster
+                obs_event = ObservatoryEvent(
+                    event_id=str(event_record.id),
+                    run_id=task_id,
+                    task_id=task_id,
+                    timestamp=event_record.created_at,
+                    event_type=event_type,
+                    status=(payload or {}).get("status", "running") if isinstance(payload, dict) else "running",
+                    step_index=(payload or {}).get("step_index", 0) if isinstance(payload, dict) else 0,
+                    message=message,
+                    metadata=payload or {},
+                )
+                await broadcaster.broadcast(obs_event)
+            except Exception:
+                pass
+            return event_record
+
         cursor = await self._db().execute(
             """
             INSERT INTO task_events (task_id, type, message, payload_json)
@@ -213,7 +242,29 @@ class Database:
         row = await cursor.fetchone()
         if row is None:
             raise RuntimeError("Event insert failed")
-        return self._event_from_row(row)
+        event_record = self._event_from_row(row)
+        try:
+            from backend.telemetry.broadcaster import ObservatoryEvent, broadcaster
+            status_val = "running"
+            step_idx = 0
+            if isinstance(payload, dict):
+                status_val = payload.get("status", "running")
+                step_idx = payload.get("step_index", 0)
+            obs_event = ObservatoryEvent(
+                event_id=str(event_record.id),
+                run_id=task_id,
+                task_id=task_id,
+                timestamp=event_record.created_at,
+                event_type=event_type,
+                status=status_val,
+                step_index=step_idx,
+                message=message,
+                metadata=payload or {},
+            )
+            await broadcaster.broadcast(obs_event)
+        except Exception:
+            pass
+        return event_record
 
     async def list_events(self, task_id: str, after_id: int = 0) -> list[EventRecord]:
         """Return events for a task after a previously seen event id."""

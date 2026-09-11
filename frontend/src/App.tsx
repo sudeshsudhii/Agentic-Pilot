@@ -44,28 +44,50 @@ export default function App() {
 
   const active = useMemo(() => currentTask && !["completed", "failed", "cancelled"].includes(currentTask.status), [currentTask]);
 
-  async function refresh() {
+  // Initial load of static data (settings, plugins) once on mount
+  useEffect(() => {
+    getSettings().then(setSettings).catch(console.error);
+    listPlugins().then(setPlugins).catch(console.error);
+    listTasks().then(setTasks).catch(console.error);
+    listApprovals().then(setApprovals).catch(console.error);
+  }, []);
+
+  async function refreshTasks() {
+    try {
+      const [taskBody, approvalBody] = await Promise.all([
+        listTasks(),
+        listApprovals(),
+      ]);
+      setTasks(taskBody);
+      setApprovals(approvalBody);
+      const taskSnapshot = currentTaskRef.current;
+      if (taskSnapshot) {
+        setCurrentTask(await getTask(taskSnapshot.task_id));
+      }
+    } catch (err) {
+      console.error("Failed to refresh tasks:", err);
+    }
+  }
+
+  async function refreshAll() {
     const [settingsBody, taskBody, approvalBody, pluginBody] = await Promise.all([
       getSettings(),
       listTasks(),
       listApprovals(),
-      listPlugins()
+      listPlugins(),
     ]);
     setSettings(settingsBody);
     setTasks(taskBody);
     setApprovals(approvalBody);
     setPlugins(pluginBody);
-    const taskSnapshot = currentTaskRef.current;
-    if (taskSnapshot) {
-      setCurrentTask(await getTask(taskSnapshot.task_id));
-    }
   }
 
+  // Adaptive polling: 2s when active task running, 10s when idle
   useEffect(() => {
-    refresh().catch(console.error);
-    const interval = window.setInterval(() => refresh().catch(console.error), 2500);
+    const intervalMs = active ? 2000 : 10000;
+    const interval = window.setInterval(refreshTasks, intervalMs);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [active]);
 
   async function handleSubmit(input: string) {
     setBusy(true);
@@ -73,7 +95,7 @@ export default function App() {
       const created = await createTask(input);
       const task = await getTask(created.task_id);
       setCurrentTask(task);
-      await refresh();
+      await refreshTasks();
     } finally {
       setBusy(false);
     }
@@ -85,12 +107,12 @@ export default function App() {
     }
     const task = await cancelTask(currentTask.task_id);
     setCurrentTask(task);
-    await refresh();
+    await refreshTasks();
   }
 
   async function handleDecision(approvalId: string, decision: "approved" | "rejected") {
     await respondApproval(approvalId, decision);
-    await refresh();
+    await refreshTasks();
   }
 
   async function handleSettingsSave(next: Partial<SettingsType>) {
@@ -98,7 +120,7 @@ export default function App() {
   }
 
   if (settings && !settings.setup_complete) {
-    return <SetupWizard settings={settings} onComplete={refresh} />;
+    return <SetupWizard settings={settings} onComplete={refreshAll} />;
   }
 
   return (
@@ -140,7 +162,7 @@ export default function App() {
             <ExecutionPanel task={currentTask} events={events} />
           </div>
         ) : null}
-        {view === "history" ? <TaskHistory tasks={tasks} onRefresh={refresh} onSelect={setCurrentTask} /> : null}
+        {view === "history" ? <TaskHistory tasks={tasks} onRefresh={refreshTasks} onSelect={setCurrentTask} /> : null}
         {view === "plugins" ? <PluginManager plugins={plugins} /> : null}
         {view === "settings" ? <Settings settings={settings} onSave={handleSettingsSave} /> : null}
       </main>

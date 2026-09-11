@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.agent.runner import TaskRunner
-from backend.api import approvals, health, plugins, sessions, settings, tasks
+from backend.api import approvals, health, observability, plugins, sessions, settings, tasks
 from backend.browser.pool import browser_pool
 from backend.config import get_config
 from backend.db.database import database
@@ -55,9 +55,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Verify Ollama is reachable at startup
     from backend.llm.gateway import OllamaGateway
+    from backend.llm.registry import model_registry
     gateway = OllamaGateway()
     if await gateway.health_check():
         logger.info("Ollama is reachable at %s", config.ollama_base_url)
+        await model_registry.probe_installed(gateway)
     else:
         logger.critical(
             "Ollama is NOT reachable at %s — LLM features will fail. "
@@ -75,7 +77,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Pilot API", version=config.app_version, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "http://127.0.0.1:1420"],
+    allow_origins=[
+        "http://localhost:1420",
+        "http://127.0.0.1:1420",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:8766",
+        "http://127.0.0.1:8766",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,6 +95,7 @@ app.include_router(sessions.router)
 app.include_router(plugins.router)
 app.include_router(settings.router)
 app.include_router(health.router)
+app.include_router(observability.router)
 
 
 @app.middleware("http")

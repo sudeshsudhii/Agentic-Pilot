@@ -2,20 +2,56 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+env/
 venv/
 .venv/
+ENV/
 .pytest_cache/
-.env
+.coverage
+htmlcov/
+.ruff_cache/
 
-# Node/Frontend
+# Node & Frontend
 node_modules/
 dist/
 .npm/
+.vite/
+observatory/frontend/node_modules/
+observatory/frontend/dist/
 
-# Rust/Tauri
+# Rust / Tauri
 src-tauri/target/
 
-# Database / OS
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Database & Runtime Data
 *.db
 *.sqlite
+*.sqlite3
+backend/data/
+data/
+
+# Evidence & Telemetry Logs
+evidence/
+logs/
+*.log
+*.jsonl
+privacy_audit.jsonl
+
+# Scratch, MCP, & Temporary Test Artifacts
+scratch/
+.agentic-memory/
+.playwright-mcp/
+Agentic_Pilot_Evaluation_Report.pdf
+certify_output*.txt
+
+# OS & IDE
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/

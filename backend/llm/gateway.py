@@ -32,10 +32,50 @@ class OllamaGateway:
             self._client = ollama.AsyncClient(host=self.config.ollama_base_url)
         return self._client
 
-    async def complete(self, system: str, user: str, json_mode: bool = False, image_bytes: bytes | None = None) -> str:
+    async def list_models(self) -> list[dict]:
+        """Return the list of locally available Ollama models with metadata."""
+
+        try:
+            response = await self._client_instance().list()
+            models = response.get("models", []) if isinstance(response, dict) else getattr(response, "models", [])
+            return [
+                {
+                    "name": getattr(m, "model", None) or m.get("model", "unknown") if isinstance(m, dict) else getattr(m, "model", "unknown"),
+                    "size": getattr(m, "size", None) or (m.get("size") if isinstance(m, dict) else None),
+                    "modified_at": str(getattr(m, "modified_at", None) or (m.get("modified_at") if isinstance(m, dict) else None)),
+                }
+                for m in models
+            ]
+        except Exception as exc:
+            logger.warning("OLLAMA_LIST_MODELS_FAILED error=%s", exc)
+            return []
+
+    async def list_model_names(self) -> list[str]:
+        """Return just the names of locally installed models and update registry."""
+
+        models = await self.list_models()
+        names = [m["name"] for m in models]
+        if names:
+            from backend.llm.registry import model_registry
+            model_registry.mark_installed(names)
+        return names
+
+    async def is_model_installed(self, model_name: str) -> bool:
+        """Check if a specific model is installed in local Ollama daemon."""
+        installed = await self.list_model_names()
+        norm_target = model_name.lower()
+        base_target = norm_target.split(":")[0] if ":" in norm_target else norm_target
+        for m in installed:
+            m_norm = m.lower()
+            m_base = m_norm.split(":")[0] if ":" in m_norm else m_norm
+            if norm_target == m_norm or base_target == m_base:
+                return True
+        return False
+
+    async def complete(self, system: str, user: str, json_mode: bool = False, image_bytes: bytes | None = None, model_override: str | None = None) -> str:
         """Return raw text completion content from the configured local model."""
 
-        model_name = self.config.ollama_model if image_bytes is None else self.config.ollama_vision_model
+        model_name = model_override or (self.config.ollama_model if image_bytes is None else self.config.ollama_vision_model)
         last_error: Exception | None = None
         for attempt in range(self.config.max_retry_count + 1):
             started = time.perf_counter()
@@ -69,6 +109,15 @@ class OllamaGateway:
                     latency_ms=latency_ms,
                     model=model_name,
                 )
+                # Privacy audit (R12)
+                from backend.security.audit import privacy_auditor
+                privacy_auditor.record_llm_call(
+                    model=model_name,
+                    destination=self.config.ollama_base_url,
+                    prompt_bytes=len(system) + len(user),
+                    response_bytes=len(content),
+                    latency_ms=latency_ms,
+                )
                 return content
             except Exception as exc:
                 latency_ms = int((time.perf_counter() - started) * 1000)
@@ -100,7 +149,7 @@ class OllamaGateway:
         )
         raise RuntimeError(f"Ollama completion failed after {self.config.max_retry_count + 1} attempts: {last_error}") from last_error
 
-    async def complete_structured(self, system: str, user: str, schema: type[BaseModel], image_bytes: bytes | None = None) -> BaseModel:
+    async def complete_structured(self, system: str, user: str, schema: type[BaseModel], image_bytes: bytes | None = None, model_override: str | None = None) -> BaseModel:
         """Return a Pydantic model parsed from an Ollama JSON-mode response."""
 
         fields = []
@@ -125,7 +174,7 @@ class OllamaGateway:
         last_error: Exception | None = None
         for attempt in range(self.config.max_retry_count + 1):
             try:
-                raw = await self.complete(system_with_schema, prompt, json_mode=True, image_bytes=image_bytes)
+                raw = await self.complete(system_with_schema, prompt, json_mode=True, image_bytes=image_bytes, model_override=model_override)
                 result = parse_model_response(raw, schema)
                 logger.info("OLLAMA_STRUCTURED schema=%s attempt=%d success=True", schema.__name__, attempt + 1)
                 return result

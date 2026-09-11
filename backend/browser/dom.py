@@ -9,6 +9,71 @@ from playwright.async_api import Page
 from backend.llm.parser import ActionManifest, InteractiveElement
 
 
+async def detect_captcha(page: Page) -> tuple[bool, str]:
+    """Detect CAPTCHA or bot verification signals from URL, text, and DOM elements."""
+    try:
+        url = page.url.lower()
+        if "/sorry/" in url or "sorry/index" in url:
+            return True, "Google bot challenge /sorry/ page detected"
+        if "recaptcha" in url or "captcha" in url:
+            return True, f"CAPTCHA URL detected ({page.url})"
+
+        # Check page title
+        try:
+            title = (await page.title()).lower()
+            if "sorry..." in title or "captcha" in title or "robot" in title:
+                return True, f"CAPTCHA page title detected: '{title}'"
+        except Exception:
+            pass
+
+        # Check page text
+        try:
+            text = (await page.locator("body").inner_text(timeout=2000)).lower()
+            captcha_phrases = [
+                "i'm not a robot",
+                "im not a robot",
+                "recaptcha",
+                "unusual traffic",
+                "automated queries",
+                "verify you are human",
+                "verify you're human",
+                "bot verification",
+                "complete this captcha",
+                "security check",
+                "enter the characters you see",
+                "attention required! | cloudflare",
+            ]
+            for phrase in captcha_phrases:
+                if phrase in text:
+                    return True, f"Bot verification phrase detected: '{phrase}'"
+        except Exception:
+            pass
+
+        # Check challenge DOM elements and iframes
+        try:
+            captcha_selectors = [
+                "iframe[src*='recaptcha']",
+                "iframe[src*='captcha']",
+                "iframe[src*='challenges.cloudflare.com']",
+                "iframe[title*='reCAPTCHA']",
+                ".g-recaptcha",
+                "#recaptcha",
+                "#captcha",
+                "input[name='captcha']",
+                "form#captcha-form",
+            ]
+            for selector in captcha_selectors:
+                if await page.locator(selector).count() > 0:
+                    return True, f"CAPTCHA challenge element detected: '{selector}'"
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+
+    return False, ""
+
+
 class DOMExtractor:
     """Extract visible interactive elements from a Playwright page."""
 
@@ -35,10 +100,12 @@ class DOMExtractor:
     async def _detect_page_state(self, page: Page) -> str:
         """Detect login, loading, error, CAPTCHA, or ready page states."""
 
+        is_captcha, _ = await detect_captcha(page)
+        if is_captcha:
+            return "captcha"
+
         text = (await page.locator("body").inner_text(timeout=3000)).lower()
         url = page.url.lower()
-        if "captcha" in text or "recaptcha" in text:
-            return "captcha"
         if "login" in url or any(term in text for term in ("sign in", "log in", "password")):
             return "login_required"
         if any(term in text for term in ("404", "500", "not found", "server error")):

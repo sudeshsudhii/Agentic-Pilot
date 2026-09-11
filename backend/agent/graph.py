@@ -20,6 +20,7 @@ def build_graph():
     graph.add_node("auth_check", nodes.auth_check_node)
     graph.add_node("navigate", nodes.navigate_node)
     graph.add_node("extract_dom", nodes.extract_dom_node)
+    graph.add_node("retrieve_context", nodes.retrieve_context_node)
     graph.add_node("plan_action", nodes.plan_action_node)
     graph.add_node("execute_action", nodes.execute_action_node)
     graph.add_node("verify", nodes.verify_node)
@@ -43,12 +44,21 @@ def build_graph():
     graph.add_edge("auth_check", "navigate")
 
     def navigate_router(state: AgentState) -> str:
+        if state.get("status") == "blocked":
+            return "complete"
         if state.get("navigation_succeeded"):
             return "extract_dom"
         return "error_recovery"
 
     graph.add_conditional_edges("navigate", navigate_router)
-    graph.add_edge("extract_dom", "plan_action")
+
+    def extract_dom_router(state: AgentState) -> str:
+        if state.get("status") == "blocked":
+            return "complete"
+        return "retrieve_context"
+
+    graph.add_conditional_edges("extract_dom", extract_dom_router)
+    graph.add_edge("retrieve_context", "plan_action")
     graph.add_edge("plan_action", "execute_action")
     graph.add_edge("execute_action", "verify")
     
@@ -61,6 +71,14 @@ def build_graph():
         return "complete"
 
     graph.add_conditional_edges("verify", verify_router)
-    graph.add_edge("error_recovery", "complete")
+
+    def recovery_router(state: AgentState) -> str:
+        """Route recovery: retry loops back to extract_dom, exhausted or blocked goes to complete."""
+        if state.get("status") in ("failed", "blocked"):
+            return "complete"
+        # Recovery strategy says retry — loop back to re-extract DOM and replan
+        return "extract_dom"
+
+    graph.add_conditional_edges("error_recovery", recovery_router)
     graph.add_edge("complete", END)
     return graph.compile()

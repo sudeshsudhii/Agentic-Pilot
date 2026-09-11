@@ -21,6 +21,28 @@ class ParsedIntent(BaseModel):
     reasoning: str
 
 
+class TaskStep(BaseModel):
+    """A single sub-step within a decomposed TaskPlan."""
+
+    step_index: int = Field(default=1, description="1-indexed step number")
+    description: str = Field(description="Actionable description of what to do in this step")
+    target: str | None = Field(default=None, description="Target URL, site, or UI area")
+    action_type: str = Field(default="interact", description="Type of action: navigate, click, type_text, select_option, extract, verify")
+    expected_outcome: str = Field(default="", description="Expected environment outcome or verification condition")
+    status: str = Field(default="pending", description="Status: pending, running, completed, failed, skipped")
+    result_summary: str | None = Field(default=None, description="Summary of outcome once completed")
+
+
+class TaskPlan(BaseModel):
+    """Structured hierarchical task decomposition plan (R04)."""
+
+    task_summary: str = Field(description="High-level summary of the overall task")
+    total_steps: int = Field(default=1, description="Total number of steps")
+    steps: list[TaskStep] = Field(default_factory=list, description="Ordered sequence of sub-steps")
+    current_step_index: int = Field(default=1, description="Current step index being executed")
+
+
+
 class InteractiveElement(BaseModel):
     """Compact description of an actionable page element."""
 
@@ -56,6 +78,10 @@ class PlannedAction(BaseModel):
     text: str | None = None
     value: str | None = None
     url: str | None = None
+    key: str | None = None
+    direction: str | None = None
+    press_enter: bool | None = None
+    extracted_data: dict[str, Any] | list[Any] | str | None = None
     reasoning: str
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     selector_quality: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -71,6 +97,8 @@ class ActionResult(BaseModel):
     error: str | None = None
     page_state_after: str
     duration_ms: int
+    data: Any | None = None
+    observed_state: dict[str, Any] | None = None
 
 
 def sanitize_json_text(text: str) -> str:
@@ -156,6 +184,13 @@ def sanitize_schema_data(data: dict, schema: type[BaseModel]) -> dict:
                     val = 1.0
             # Clamp between 0.0 and 1.0
             data[score_field] = max(0.0, min(1.0, val))
+
+    # 5. Normalize extracted_data if string or list provided
+    if "extracted_data" in data:
+        if isinstance(data["extracted_data"], str):
+            data["extracted_data"] = {"summary": data["extracted_data"]}
+        elif isinstance(data["extracted_data"], list):
+            data["extracted_data"] = {"items": data["extracted_data"]}
 
     return data
 

@@ -83,6 +83,17 @@ export async function cancelTask(taskId: string): Promise<Task> {
   return request(`/api/tasks/${taskId}`, { method: "DELETE" });
 }
 
+export async function resumeTask(taskId: string): Promise<Task> {
+  return request(`/api/tasks/${taskId}/resume`, { method: "POST" });
+}
+
+export async function fallbackTask(taskId: string, provider: string = "duckduckgo"): Promise<Task> {
+  return request(`/api/tasks/${taskId}/fallback`, {
+    method: "POST",
+    body: JSON.stringify({ provider })
+  });
+}
+
 export async function listApprovals(): Promise<Approval[]> {
   const body = await request<{ approvals: Approval[] }>("/api/approvals");
   return body.approvals;

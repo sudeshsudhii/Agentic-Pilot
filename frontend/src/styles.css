@@ -216,9 +216,31 @@ textarea {
   color: #9c3328;
 }
 
-.status-pill.waiting_approval {
-  background: #fff1cd;
-  color: #7b5200;
+.status-pill.waiting_approval,
+.status-pill.blocked {
+  background: #fef3c7;
+  color: #92400e;
+  font-weight: 600;
+}
+
+.blocked-recovery-card {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.blocked-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.blocked-icon {
+  color: #d97706;
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .task-line {
@@ -521,6 +543,110 @@ textarea {
   display: grid;
   gap: 14px;
   justify-items: start;
+}
+
+/* Pilot Execution Status Dashboard */
+.execution-dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  background: #f8faf8;
+  border: 1px solid #d4ded3;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.dashboard-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #ffffff;
+  border: 1px solid #e2e8e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.dashboard-card.card-wide {
+  grid-column: 1 / -1;
+}
+
+.dashboard-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6a7974;
+}
+
+.dashboard-value {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #172421;
+  word-break: break-word;
+}
+
+.dashboard-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.dashboard-badge.badge-active,
+.dashboard-badge.badge-success,
+.dashboard-badge.badge-passed,
+.dashboard-badge.badge-completed {
+  background: #def7ec;
+  color: #03543f;
+}
+
+.dashboard-badge.badge-unavailable,
+.dashboard-badge.badge-failed {
+  background: #fde8e8;
+  color: #9b1c1c;
+}
+
+.dashboard-badge.badge-executing,
+.dashboard-badge.badge-pending {
+  background: #e1effe;
+  color: #1e429f;
+}
+
+.findings-box {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 14px;
+  margin: 14px 0;
+}
+
+.findings-box h3 {
+  color: #166534;
+  margin-bottom: 8px;
+}
+
+.findings-content {
+  font-size: 14px;
+  color: #14532d;
+  line-height: 1.6;
+}
+
+.evidence-container {
+  margin: 14px 0;
+}
+
+.evidence-preview-img {
+  width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  border: 1px solid #d4ded3;
+  border-radius: 6px;
+  background: #111827;
 }
 
 @media (max-width: 860px) {

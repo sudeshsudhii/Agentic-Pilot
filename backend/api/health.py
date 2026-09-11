@@ -19,15 +19,20 @@ async def detailed_health(request: Request) -> DetailedHealthResponse:
     """Return component health, uptime, and version details."""
 
     started = time.perf_counter()
-    ollama_ok = await OllamaGateway().health_check()
+    gateway = OllamaGateway()
+    ollama_ok = await gateway.health_check()
     ollama_latency = int((time.perf_counter() - started) * 1000)
+    installed_models = await gateway.list_models() if ollama_ok else []
     tasks_count = await request.app.state.database.count_tasks()
     browser_pool = getattr(request.app.state, "browser_pool", None)
+    config = get_config()
     components = {
         "ollama": {
             "status": "connected" if ollama_ok else "disconnected",
-            "model": get_config().ollama_model,
+            "model": config.ollama_model,
+            "vision_model": config.ollama_vision_model,
             "latency_ms": ollama_latency,
+            "installed_models": installed_models,
         },
         "database": {
             "status": "connected",
@@ -37,6 +42,12 @@ async def detailed_health(request: Request) -> DetailedHealthResponse:
         "browser": {
             "status": "ready",
             "active_sessions": browser_pool.active_sessions if browser_pool else 0,
+        },
+        "features": {
+            "evidence": config.enable_evidence,
+            "verification": config.enable_verification,
+            "recovery": config.enable_recovery,
+            "memory": config.enable_memory,
         },
     }
     status = "healthy" if ollama_ok else "degraded"

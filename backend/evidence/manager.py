@@ -3,20 +3,48 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.config import get_config
 from backend.db.database import resolve_path
 
 
+class ExecutionRecord(BaseModel):
+    """Structured execution record for a single step in task execution.
+
+    This is the core schema for evidence-driven execution (R07).
+    Every meaningful action produces one of these records.
+    """
+
+    task_id: str
+    step_id: str
+    step_index: int = 0
+    action: dict[str, Any] = Field(default_factory=dict)
+    before_state: dict[str, Any] = Field(default_factory=dict)
+    execution_result: dict[str, Any] = Field(default_factory=dict)
+    after_state: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    verification: dict[str, Any] = Field(default_factory=dict)
+    knowledge_context: list[dict[str, Any]] = Field(default_factory=list)
+    model: str = ""
+    model_role: str = ""
+    routing_reason: str = ""
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    duration_ms: int = 0
+    node_name: str = ""
+
+
+
 class EvidenceManager:
     """Manages the generation of hard evidence artifacts for task execution."""
 
-    def __init__(self) -> None:
-        self.evidence_dir = resolve_path(get_config().log_dir) / "evidence"
+    def __init__(self, evidence_dir: Path | None = None) -> None:
+        self.evidence_dir = evidence_dir or (resolve_path(get_config().log_dir) / "evidence")
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
+
 
     def _get_task_dir(self, task_id: str) -> Path:
         task_dir = self.evidence_dir / task_id
@@ -82,5 +110,42 @@ class EvidenceManager:
             json.dump(log_data, f, indent=2)
         return str(file_path)
 
+    def save_execution_record(self, record: ExecutionRecord) -> str:
+        """Save a structured execution record for a single step.
+
+        Records are appended to execution_records.json in the task's evidence
+        directory. This is the core evidence-driven execution artifact (R07).
+        """
+        file_path = self._get_task_dir(record.task_id) / "execution_records.json"
+
+        records: list[dict] = []
+        if file_path.exists():
+            with open(file_path, "r", encoding="utf-8") as f:
+                try:
+                    records = json.load(f)
+                except json.JSONDecodeError:
+                    pass
+
+        records.append(record.model_dump())
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(records, f, indent=2)
+
+        return str(file_path)
+
+    def load_task_records(self, task_id: str) -> list[ExecutionRecord]:
+        """Load all execution records for a task."""
+        file_path = self._get_task_dir(task_id) / "execution_records.json"
+        if not file_path.exists():
+            return []
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            try:
+                data = json.load(f)
+                return [ExecutionRecord.model_validate(r) for r in data]
+            except (json.JSONDecodeError, Exception):
+                return []
+
 
 evidence_manager = EvidenceManager()
+

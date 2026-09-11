@@ -42,23 +42,62 @@ class BrowserPool:
         self._retained_contexts: dict[str, RetainedContext] = {}
         self._idle_watchdog: asyncio.Task[None] | None = None
 
+    def _is_browser_valid(self) -> bool:
+        """Check if Playwright browser is alive and connected in the current event loop."""
+        if self._browser is None or self._playwright is None:
+            return False
+        try:
+            current_loop = asyncio.get_running_loop()
+            playwright_loop = getattr(self._playwright, "_loop", None)
+            if playwright_loop is not None and (playwright_loop is not current_loop or playwright_loop.is_closed()):
+                return False
+            if not self._browser.is_connected():
+                return False
+            impl = getattr(self._browser, "_impl_obj", None)
+            if impl is not None and getattr(impl, "_channel", None) is None:
+                return False
+            return True
+        except Exception:
+            return False
+
     async def start(self) -> None:
         """Start Playwright and launch the Chromium browser if needed."""
 
-        if self._browser is not None:
+        if self._is_browser_valid():
             return
+        # If invalid, check if playwright was bound to an old/closed loop
+        try:
+            current_loop = asyncio.get_running_loop()
+            pw_loop = getattr(self._playwright, "_loop", None)
+            if pw_loop is not None and (pw_loop is not current_loop or pw_loop.is_closed()):
+                self._browser = None
+                self._playwright = None
+                self._active = 0
+                self._task_contexts.clear()
+                self._retained_contexts.clear()
+                while not self._available.empty():
+                    self._available.get_nowait()
+            else:
+                await self.shutdown()
+        except Exception:
+            self._browser = None
+            self._playwright = None
+
         headless = get_config().headless_browser
         logger.info("BROWSER_POOL starting_playwright headless=%s", headless)
         self._playwright = await async_playwright().start()
         logger.info("BROWSER_POOL playwright_started, launching_chromium")
-        self._browser = await self._playwright.chromium.launch(headless=headless)
+        self._browser = await self._playwright.chromium.launch(
+            headless=headless,
+            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+        )
         logger.info(
             "BROWSER_CREATED pid=%s headless=%s",
             getattr(self._browser, "process", None),
             headless,
         )
         # Start idle timeout watchdog
-        if self._idle_watchdog is None:
+        if self._idle_watchdog is None or self._idle_watchdog.done():
             self._idle_watchdog = asyncio.create_task(self._idle_timeout_watchdog())
 
     @asynccontextmanager
@@ -83,7 +122,20 @@ class BrowserPool:
                 return context
             if self._active < self.max_contexts:
                 self._active += 1
-                ctx = await self._browser.new_context()  # type: ignore[union-attr]
+                try:
+                    ctx = await self._browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                        viewport={"width": 1280, "height": 800},
+                    )
+                except Exception as exc:
+                    logger.warning("BROWSER_POOL new_context failed: %s; recreating browser", exc)
+                    await self.shutdown()
+                    await self.start()
+                    ctx = await self._browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                        viewport={"width": 1280, "height": 800},
+                    )
+                await ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
                 logger.info(
                     "BROWSER_CREATED context active=%d max=%d",
                     self._active,
@@ -296,12 +348,30 @@ class BrowserPool:
         # Then close pooled contexts
         while not self._available.empty():
             context = await self._available.get()
-            await context.close()
+            try:
+                await context.close()
+            except Exception:
+                pass
+        # Close all active task contexts
+        for ctx in list(self._task_contexts.values()):
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+        self._task_contexts.clear()
+        self._retained_contexts.clear()
+        self._active = 0
         if self._browser is not None:
-            await self._browser.close()
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
             self._browser = None
         if self._playwright is not None:
-            await self._playwright.stop()
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
             self._playwright = None
         logger.info("BROWSER_CLOSED_ON_EXIT shutdown_complete")
 

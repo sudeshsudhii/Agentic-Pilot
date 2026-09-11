@@ -29,7 +29,7 @@ class MemoryProvider(ABC):
     """Base class for memory providers."""
     
     @abstractmethod
-    async def store_memory(self, content: str, memory_type: str = "semantic", task_id: str | None = None, tags: list[str] | None = None) -> MemoryRecord:
+    async def store_memory(self, content: str, memory_type: str = "semantic", task_id: str | None = None, tags: list[str] | None = None) -> MemoryRecord | None:
         pass
         
     @abstractmethod
@@ -40,6 +40,18 @@ class MemoryProvider(ABC):
     async def summarize_task(self, task_id: str, result: dict, input_text: str) -> None:
         pass
 
+    @abstractmethod
+    async def store_strategy(self, task_id: str, goal: str, strategy: dict, outcome: str = "success") -> MemoryRecord | None:
+        pass
+
+    @abstractmethod
+    async def store_failure(self, task_id: str, goal: str, failure: dict, diagnosis: str) -> MemoryRecord | None:
+        pass
+
+    @abstractmethod
+    async def retrieve_strategies(self, query: str, limit: int = 3) -> list[MemoryRecord]:
+        pass
+
 class ChromaProvider(MemoryProvider):
     """ChromaDB implementation of MemoryProvider."""
 
@@ -48,7 +60,10 @@ class ChromaProvider(MemoryProvider):
         self.chroma = chromadb.PersistentClient(path=str(db_path))
         self.collection = self.chroma.get_or_create_collection("pilot_memories")
 
-    async def store_memory(self, content: str, memory_type: str = "semantic", task_id: str | None = None, tags: list[str] | None = None) -> MemoryRecord:
+    async def store_memory(self, content: str, memory_type: str = "semantic", task_id: str | None = None, tags: list[str] | None = None) -> MemoryRecord | None:
+        if not get_config().enable_memory:
+            return None
+
         memory_id = str(uuid.uuid4())
         tags = tags or []
         now = datetime.now(UTC).isoformat()
@@ -73,7 +88,13 @@ class ChromaProvider(MemoryProvider):
         return record
 
     async def retrieve_relevant(self, query: str, limit: int = 5) -> list[MemoryRecord]:
-        results = await asyncio.to_thread(self.collection.query, query_texts=[query], n_results=limit)
+        if not get_config().enable_memory:
+            return []
+
+        try:
+            results = await asyncio.to_thread(self.collection.query, query_texts=[query], n_results=limit)
+        except Exception:
+            return []
         
         memory_ids = results["ids"][0] if results["ids"] else []
         if not memory_ids:
@@ -98,6 +119,9 @@ class ChromaProvider(MemoryProvider):
         return retrieved
 
     async def summarize_task(self, task_id: str, result: dict, input_text: str) -> None:
+        if not get_config().enable_memory:
+            return
+
         success = result.get("success", False)
         content = f"Task: {input_text}. Status: {'Success' if success else 'Failed'}."
         if "error" in result and result["error"]:
@@ -107,5 +131,42 @@ class ChromaProvider(MemoryProvider):
             content=content, memory_type="episodic", task_id=task_id, tags=["task_summary", "success" if success else "failed"]
         )
 
+    async def store_strategy(self, task_id: str, goal: str, strategy: dict, outcome: str = "success") -> MemoryRecord | None:
+        """Store an effective execution strategy for cross-session reuse (R11)."""
+        if not get_config().enable_memory:
+            return None
+
+        content = f"Strategy for '{goal}': {json.dumps(strategy)}. Outcome: {outcome}."
+        tags = ["strategy", outcome, f"goal:{goal[:30]}"]
+        return await self.store_memory(
+            content=content,
+            memory_type="strategy",
+            task_id=task_id,
+            tags=tags,
+        )
+
+    async def store_failure(self, task_id: str, goal: str, failure: dict, diagnosis: str) -> MemoryRecord | None:
+        """Store a failure diagnosis to avoid repeating known failed strategies (R11)."""
+        if not get_config().enable_memory:
+            return None
+
+        content = f"Failure on '{goal}': Diagnosis: {diagnosis}. Details: {json.dumps(failure)}."
+        tags = ["failure_pattern", f"goal:{goal[:30]}"]
+        return await self.store_memory(
+            content=content,
+            memory_type="failure_pattern",
+            task_id=task_id,
+            tags=tags,
+        )
+
+    async def retrieve_strategies(self, query: str, limit: int = 3) -> list[MemoryRecord]:
+        """Retrieve relevant past strategies and failure patterns for planning (R11)."""
+        if not get_config().enable_memory:
+            return []
+
+        search_query = f"strategy or failure for {query}"
+        return await self.retrieve_relevant(search_query, limit=limit)
+
 # Factory instance
 memory_manager: MemoryProvider = ChromaProvider()
+
