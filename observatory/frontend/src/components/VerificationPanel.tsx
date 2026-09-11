@@ -6,10 +6,22 @@ interface VerificationPanelProps {
   events: ObservatoryEvent[];
 }
 
+const formatValue = (val: any): string => {
+  if (val === null || val === undefined) return "UNKNOWN";
+  if (typeof val === "object") {
+    try {
+      return JSON.stringify(val, null, 2);
+    } catch {
+      return String(val);
+    }
+  }
+  return String(val);
+};
+
 export const VerificationPanel: React.FC<VerificationPanelProps> = ({ events }) => {
-  let requirement = "Awaiting task verification...";
-  let expected = "UNKNOWN";
-  let observed = "UNKNOWN";
+  let requirement: any = "Awaiting task verification...";
+  let expected: any = "UNKNOWN";
+  let observed: any = "UNKNOWN";
   let domCheck = "PENDING";
   let visionCheck = "SKIPPED";
   let overall = "PENDING";
@@ -75,21 +87,21 @@ export const VerificationPanel: React.FC<VerificationPanelProps> = ({ events }) 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs font-mono">
         <div className="bg-slate-900/80 p-2.5 rounded border border-white/5 md:col-span-3">
           <span className="text-slate-500 block text-[10px] mb-0.5">VERIFICATION REQUIREMENT</span>
-          <span className="text-slate-200 font-sans">{requirement}</span>
+          <span className="text-slate-200 font-sans">{formatValue(requirement)}</span>
         </div>
 
         <div className="bg-slate-900/80 p-2.5 rounded border border-white/5 md:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <span className="text-slate-500 block text-[10px] mb-1">EXPECTED VALUE</span>
-            <div className="bg-slate-950/80 p-2 rounded text-cyan-300 font-mono text-[11px] break-words border border-white/5">
-              {expected}
-            </div>
+            <pre className="bg-slate-950/80 p-2 rounded text-cyan-300 font-mono text-[11px] break-words border border-white/5 whitespace-pre-wrap">
+              {formatValue(expected)}
+            </pre>
           </div>
           <div>
             <span className="text-slate-500 block text-[10px] mb-1">OBSERVED VALUE</span>
-            <div className="bg-slate-950/80 p-2 rounded text-emerald-300 font-mono text-[11px] break-words border border-white/5">
-              {observed}
-            </div>
+            <pre className="bg-slate-950/80 p-2 rounded text-emerald-300 font-mono text-[11px] break-words border border-white/5 whitespace-pre-wrap">
+              {formatValue(observed)}
+            </pre>
           </div>
         </div>
 

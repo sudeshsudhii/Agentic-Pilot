@@ -14,6 +14,42 @@ import { ExperienceView } from "./components/ExperienceView";
 import { LangGraphStateView } from "./components/LangGraphStateView";
 import { ObservatoryEvent, PerformanceMetrics, SystemStatus } from "./types";
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("Observatory ErrorBoundary caught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="obs-card p-6 border-rose-500/30 bg-rose-950/20 text-slate-200 m-6 flex flex-col gap-3">
+          <h2 className="text-base font-bold text-rose-400 font-mono">Telemetry Render Error Recovered</h2>
+          <p className="text-xs text-slate-300">An unexpected data format occurred while rendering telemetry panels:</p>
+          <pre className="bg-black/50 p-3 rounded text-rose-300 text-xs font-mono overflow-auto">
+            {this.state.error?.message}
+          </pre>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="btn-action w-fit text-xs mt-2"
+          >
+            Reset Dashboard
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>("live");
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -195,41 +231,43 @@ export const App: React.FC = () => {
       />
 
       <main className="max-w-[1700px] mx-auto w-full px-6 py-5 flex-1 flex flex-col gap-5">
-        {activeTab === "live" && (
-          <>
-            <BlockedAlertBanner events={events} />
+        <ErrorBoundary>
+          {activeTab === "live" && (
+            <>
+              <BlockedAlertBanner events={events} />
 
-            {/* Top Row: Model Router & Task Plan */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <ModelRouterPanel events={events} />
-              <TaskPlanPanel events={events} />
-            </div>
-
-            {/* Middle Row: Observation & Vision */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <ObservationPanel events={events} activeRunId={activeRunId} />
-              <div className="flex flex-col gap-5">
-                <VisionObservabilityPanel events={events} />
-                <PerformancePanel metrics={metrics} />
+              {/* Top Row: Model Router & Task Plan */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <ModelRouterPanel events={events} />
+                <TaskPlanPanel events={events} />
               </div>
-            </div>
 
-            {/* Decision & Action */}
-            <DecisionActionPanel events={events} />
+              {/* Middle Row: Observation & Vision */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <ObservationPanel events={events} activeRunId={activeRunId} />
+                <div className="flex flex-col gap-5">
+                  <VisionObservabilityPanel events={events} />
+                  <PerformancePanel metrics={metrics} />
+                </div>
+              </div>
 
-            {/* Verification */}
-            <VerificationPanel events={events} />
+              {/* Decision & Action */}
+              <DecisionActionPanel events={events} />
 
-            {/* Live Trace Timeline */}
-            <TimelineTrace events={events} />
-          </>
-        )}
+              {/* Verification */}
+              <VerificationPanel events={events} />
 
-        {activeTab === "history" && <RunHistoryView onSelectRun={handleSelectRun} />}
+              {/* Live Trace Timeline */}
+              <TimelineTrace events={events} />
+            </>
+          )}
 
-        {activeTab === "experiences" && <ExperienceView />}
+          {activeTab === "history" && <RunHistoryView onSelectRun={handleSelectRun} />}
 
-        {activeTab === "langgraph" && <LangGraphStateView activeRunId={activeRunId} />}
+          {activeTab === "experiences" && <ExperienceView />}
+
+          {activeTab === "langgraph" && <LangGraphStateView activeRunId={activeRunId} />}
+        </ErrorBoundary>
       </main>
     </div>
   );
