@@ -143,6 +143,8 @@ class PilotOrchestrator:
         """Terminate any processes holding target ports."""
         if ports is None:
             ports = [self.backend_port, self.frontend_port]
+            if self.with_observatory:
+                ports.extend([8766, 3001])
 
         try:
             import psutil
@@ -491,10 +493,21 @@ class PilotOrchestrator:
         if npm_bin and obs_frontend_dir.exists():
             obs_front_proc = subprocess.Popen([npm_bin, "run", "dev"], cwd=str(obs_frontend_dir), env=os.environ.copy())
             self.child_processes["observatory_frontend"] = obs_front_proc
+        # Wait for Observatory backend
+        for _ in range(15):
+            time.sleep(0.5)
+            if self.check_http_health("http://127.0.0.1:8766/"):
+                break
+
+        # Wait for Observatory frontend
+        for _ in range(15):
+            time.sleep(0.5)
+            if self.check_http_health("http://127.0.0.1:3001"):
+                break
 
         logger.info(f"{Colors.GREEN}      Observatory is live at http://127.0.0.1:3001{Colors.RESET}")
         if not self.no_browser:
-            time.sleep(1)
+            time.sleep(0.5)
             webbrowser.open("http://127.0.0.1:3001")
 
     # -------------------------------------------------------------------------
@@ -511,9 +524,18 @@ class PilotOrchestrator:
         if self.with_observatory:
             print("  Observatory UI  : http://127.0.0.1:3001")
             print("  Observatory API : http://127.0.0.1:8766")
-        print(f"  Ollama Service  : {self.ollama_url}")
-        print(f"  Fast Text Model : {self.text_model}")
-        print(f"  Vision Model    : {self.active_vision_model}")
+        from backend.config import get_config
+        cfg = get_config()
+        active_provider = (os.environ.get("LLM_PROVIDER") or cfg.llm_provider or "gemini").lower().strip()
+        if active_provider == "gemini":
+            print(f"  Active LLM Provider: Google Gemini API (Model: {cfg.gemini_model})")
+            print("  Ollama Status   : Standby (Inactive to preserve laptop CPU/GPU/RAM)")
+        elif active_provider == "hybrid":
+            print(f"  Active LLM Provider: Hybrid (Gemini: {cfg.gemini_model} -> Ollama fallback)")
+        else:
+            print(f"  Active LLM Provider: Local Ollama ({self.text_model})")
+            print(f"  Ollama Service  : {self.ollama_url}")
+            print(f"  Vision Model    : {self.active_vision_model}")
         print("  Browser Engine  : Playwright Chromium (Stealth)")
         print(f"{Colors.CYAN}{'=' * 60}{Colors.RESET}")
         print()
@@ -669,7 +691,7 @@ class PilotOrchestrator:
                     proc.terminate()
 
         # Clean ports
-        self.free_ports([self.backend_port, self.frontend_port])
+        self.free_ports()
         self.child_processes.clear()
         self._is_shutting_down = False
         logger.info(f"{Colors.GREEN}All Pilot services stopped cleanly.{Colors.RESET}")
@@ -693,11 +715,26 @@ class PilotOrchestrator:
         # Step 1: Environment & Dependencies
         self.check_environment()
 
-        # Step 2: Ollama daemon
-        ollama_bin = self.ensure_ollama()
+        # Step 2 & 3: LLM Provider & Model verification
+        from backend.config import get_config
+        cfg = get_config()
+        active_provider = (os.environ.get("LLM_PROVIDER") or cfg.llm_provider or "gemini").lower().strip()
 
-        # Step 3: Multi-model availability
-        self.verify_models(ollama_bin)
+        if active_provider == "gemini":
+            logger.info(f"{Colors.CYAN}[2/6] Cloud Provider active: Google Gemini API (Model: {cfg.gemini_model}){Colors.RESET}")
+            logger.info(f"      Skipping local Ollama daemon startup to preserve laptop CPU/GPU/RAM.")
+            logger.info(f"{Colors.CYAN}[3/6] Verifying Gemini configuration...{Colors.RESET}")
+            has_key = bool(cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("PILOT_GEMINI_API_KEY"))
+            if has_key:
+                logger.info(f"{Colors.GREEN}      Gemini API key verified in environment.{Colors.RESET}")
+            else:
+                logger.warning(f"{Colors.YELLOW}      GEMINI_API_KEY not found in environment. Set GEMINI_API_KEY in .env to run tasks.{Colors.RESET}")
+        else:
+            # Step 2: Ollama daemon (for local ollama or hybrid modes)
+            ollama_bin = self.ensure_ollama()
+
+            # Step 3: Multi-model availability
+            self.verify_models(ollama_bin)
 
         # Step 4: Playwright engine
         self.verify_playwright()

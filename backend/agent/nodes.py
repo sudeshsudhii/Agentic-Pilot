@@ -19,7 +19,7 @@ from backend.browser.pool import browser_pool
 from backend.config import get_config
 from backend.db.database import database
 from backend.evidence.manager import ExecutionRecord, evidence_manager
-from backend.llm.gateway import OllamaGateway
+from backend.llm.gateway import OllamaGateway, get_llm_provider
 from backend.llm.parser import ParsedIntent, PlannedAction, TaskPlan, TaskStep
 from backend.llm.router import model_router
 from backend.plugins.runtime import plugin_registry
@@ -61,7 +61,7 @@ async def parse_intent_node(state: AgentState) -> dict:
     task_id = state.get("task_id", "unknown")
     logger.info("NODE=parse_intent ENTER task_id=%s input=%s", task_id, state["input_text"][:120])
     started = time.perf_counter()
-    gateway = OllamaGateway()
+    gateway = get_llm_provider()
 
     # Check if resumed from checkpoint with valid intent and plan (Section 28 & 29)
     if state.get("parsed_intent") is not None and state.get("task_plan") is not None:
@@ -186,9 +186,13 @@ async def parse_intent_node(state: AgentState) -> dict:
             current_step_index=1,
         )
 
-    from backend.vision.fallback import VisionFallback
-    vf = VisionFallback()
-    has_vision_avail, vision_model_name = await vf.check_vision_availability()
+    cfg = get_config()
+    if (cfg.llm_provider or "gemini").lower() in ("gemini", "hybrid"):
+        has_vision_avail, vision_model_name = True, cfg.gemini_model
+    else:
+        from backend.vision.fallback import VisionFallback
+        vf = VisionFallback()
+        has_vision_avail, vision_model_name = await vf.check_vision_availability()
     vision_status = "Active" if has_vision_avail else "Unavailable"
 
     first_step_desc = task_plan.steps[0].description if task_plan and task_plan.steps else (parsed.action or "Initialize")
@@ -610,7 +614,7 @@ async def plan_action_node(state: AgentState) -> dict:
     if intent is None or manifest is None:
         return {"planned_action": PlannedAction(action_type="need_help", reasoning="Missing intent or manifest")}
         
-    gateway = OllamaGateway()
+    gateway = get_llm_provider()
     
     # 1. Capability Analysis & Dynamic Model Routing (Section 1 & 6: Route first!)
     input_text = state.get("input_text", "")

@@ -39,6 +39,7 @@ class HealthResponse(BaseModel):
 
     status: str
     model: str
+    llm_provider: str = "gemini"
 
 
 @asynccontextmanager
@@ -50,22 +51,40 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.browser_pool = browser_pool
     await database.connect()
     app.state.task_runner = TaskRunner(database, config)
-    await app.state.task_runner.start()
-    logger.info("Starting Pilot backend with config: %s", config.model_dump())
+    safe_config = config.model_dump()
+    if safe_config.get("gemini_api_key"):
+        safe_config["gemini_api_key"] = "[REDACTED]"
+    logger.info("Starting Pilot backend with config: %s", safe_config)
 
-    # Verify Ollama is reachable at startup
-    from backend.llm.gateway import OllamaGateway
-    from backend.llm.registry import model_registry
-    gateway = OllamaGateway()
-    if await gateway.health_check():
-        logger.info("Ollama is reachable at %s", config.ollama_base_url)
-        await model_registry.probe_installed(gateway)
-    else:
-        logger.critical(
-            "Ollama is NOT reachable at %s — LLM features will fail. "
-            "Start Ollama with 'ollama serve' and ensure model '%s' is pulled.",
-            config.ollama_base_url, config.ollama_model,
-        )
+    # Verify active LLM provider at startup
+    import os
+    from backend.llm.gateway import get_llm_provider
+    provider = get_llm_provider(config)
+    provider_name = provider.provider_name
+    logger.info("Active LLM Provider: %s", provider_name.upper())
+
+    if provider_name == "gemini":
+        has_key = bool(config.gemini_api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("PILOT_GEMINI_API_KEY"))
+        if has_key:
+            logger.info("Google Gemini cloud inference configured (Model: %s)", config.gemini_model)
+        else:
+            logger.warning("GEMINI_API_KEY is not set in environment. Tasks will require GEMINI_API_KEY.")
+    elif provider_name in ("ollama", "hybrid"):
+        from backend.llm.gateway import OllamaGateway
+        from backend.llm.registry import model_registry
+        ollama_gw = OllamaGateway(config)
+        if await ollama_gw.health_check():
+            logger.info("Ollama is reachable at %s", config.ollama_base_url)
+            await model_registry.probe_installed(ollama_gw)
+        else:
+            if provider_name == "ollama":
+                logger.critical(
+                    "Ollama is NOT reachable at %s — LLM features will fail. "
+                    "Start Ollama with 'ollama serve' and ensure model '%s' is pulled.",
+                    config.ollama_base_url, config.ollama_model,
+                )
+            else:
+                logger.warning("Hybrid mode: Ollama not reachable, Gemini will handle inference.")
     try:
         yield
     finally:
@@ -134,8 +153,9 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     """Return a lightweight backend health status."""
-
-    return HealthResponse(status="ok", model=config.ollama_model)
+    provider = (config.llm_provider or "gemini").lower().strip()
+    active_model = config.gemini_model if provider in ("gemini", "hybrid") else config.ollama_model
+    return HealthResponse(status="ok", model=active_model, llm_provider=provider)
 
 
 @app.get("/api/browser/status")

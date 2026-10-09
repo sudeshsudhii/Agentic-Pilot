@@ -155,7 +155,7 @@ export default function App() {
             <section className="panel command-panel">
               <div className="panel-heading">
                 <h1>Run Task</h1>
-                <span className="model-label">{settings?.ollama_model ?? "qwen2.5:7b"}</span>
+                <span className="model-label">{settings?.llm_provider === "gemini" ? `Gemini · ${settings.active_model}` : settings?.llm_provider === "hybrid" ? `Hybrid · ${settings.active_model}` : settings?.active_model ?? settings?.ollama_model ?? "qwen2.5:7b"}</span>
               </div>
               <TaskInput busy={busy || Boolean(active)} onSubmit={handleSubmit} onCancel={handleCancel} />
             </section>

@@ -21,10 +21,19 @@ async def get_settings(request: Request) -> SettingsResponse:
 
     config = get_config()
     setup_complete = await request.app.state.database.get_setting("setup_complete", "false")
+    provider = (config.llm_provider or "gemini").lower().strip()
+    if provider == "gemini":
+        active_model = config.gemini_model
+    elif provider == "hybrid":
+        active_model = f"{config.gemini_model} (hybrid)"
+    else:
+        active_model = config.ollama_model
     return SettingsResponse(
         setup_complete=setup_complete == "true",
         ollama_base_url=config.ollama_base_url,
         ollama_model=await request.app.state.database.get_setting("ollama_model", config.ollama_model),
+        llm_provider=provider,
+        active_model=active_model,
         debug_mode=config.debug_mode,
         auto_approve_low_risk=config.auto_approve_low_risk,
     )

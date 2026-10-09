@@ -2,18 +2,63 @@
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class PilotConfig(BaseSettings):
     """Runtime configuration loaded from environment variables."""
 
-    model_config = SettingsConfigDict(env_prefix="PILOT_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="PILOT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-    ollama_base_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen2.5:1.5b"
-    ollama_vision_model: str = "moondream"
+    # --- LLM Provider Selection & Cloud Gemini Runtime ---
+    llm_provider: str = Field(
+        default="gemini",
+        validation_alias=AliasChoices("LLM_PROVIDER", "PILOT_LLM_PROVIDER", "llm_provider"),
+        description="Active LLM provider: 'gemini', 'ollama', or 'hybrid'",
+    )
+    gemini_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY", "PILOT_GEMINI_API_KEY", "gemini_api_key"),
+        description="Google Gemini API key (loaded securely from environment)",
+    )
+    gemini_model: str = Field(
+        default="gemini-3.5-flash-lite",
+        validation_alias=AliasChoices("GEMINI_MODEL", "PILOT_GEMINI_MODEL", "gemini_model"),
+        description="Gemini model name",
+    )
+    gemini_temperature: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=2.0,
+        validation_alias=AliasChoices("GEMINI_TEMPERATURE", "PILOT_GEMINI_TEMPERATURE", "gemini_temperature"),
+        description="Gemini temperature",
+    )
+    gemini_timeout_seconds: int = Field(
+        default=30,
+        ge=1,
+        validation_alias=AliasChoices("GEMINI_TIMEOUT_SECONDS", "PILOT_GEMINI_TIMEOUT_SECONDS", "gemini_timeout_seconds"),
+        description="Gemini API timeout in seconds",
+    )
+
+    # --- Local LLM Runtime (Ollama) ---
+    ollama_base_url: str = Field(
+        default="http://127.0.0.1:11434",
+        validation_alias=AliasChoices("OLLAMA_BASE_URL", "PILOT_OLLAMA_BASE_URL", "ollama_base_url"),
+    )
+    ollama_model: str = Field(
+        default="qwen2.5:1.5b",
+        validation_alias=AliasChoices("OLLAMA_MODEL", "PILOT_OLLAMA_MODEL", "ollama_model"),
+    )
+    ollama_vision_model: str = Field(
+        default="moondream",
+        validation_alias=AliasChoices("OLLAMA_VISION_MODEL", "PILOT_OLLAMA_VISION_MODEL", "ollama_vision_model"),
+    )
     db_path: str = "~/.pilot/data.db"
     data_dir: str = "~/.pilot/data"
     log_dir: str = "~/.pilot/logs"
@@ -83,6 +128,15 @@ class PilotConfig(BaseSettings):
     # --- Experiment Config (Phase 10 / R14) ---
     experiment_mode: bool = False
     experiment_output_dir: str = "~/.pilot/experiments"
+
+    # --- Desktop Automation Config ---
+    enable_desktop: bool = True
+    desktop_max_elements: int = Field(default=60, ge=10)
+    desktop_max_uia_depth: int = Field(default=8, ge=3)
+    desktop_observation_timeout_ms: int = Field(default=5000, ge=1000)
+    desktop_ui_settle_ms: int = Field(default=500, ge=100)
+    desktop_max_iterations: int = Field(default=15, ge=3)
+
 
 
 

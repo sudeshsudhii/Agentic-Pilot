@@ -9,7 +9,7 @@ from fastapi import APIRouter, Request
 from backend.api.schemas import DetailedHealthResponse
 from backend.api.settings import db_size_mb
 from backend.config import get_config
-from backend.llm.gateway import OllamaGateway
+from backend.llm.gateway import get_llm_provider
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -18,21 +18,26 @@ router = APIRouter(prefix="/api/health", tags=["health"])
 async def detailed_health(request: Request) -> DetailedHealthResponse:
     """Return component health, uptime, and version details."""
 
+    config = get_config()
     started = time.perf_counter()
-    gateway = OllamaGateway()
-    ollama_ok = await gateway.health_check()
-    ollama_latency = int((time.perf_counter() - started) * 1000)
-    installed_models = await gateway.list_models() if ollama_ok else []
+    gateway = get_llm_provider()
+    llm_ok = await gateway.health_check()
+    llm_latency = int((time.perf_counter() - started) * 1000)
     tasks_count = await request.app.state.database.count_tasks()
     browser_pool = getattr(request.app.state, "browser_pool", None)
-    config = get_config()
+    
     components = {
+        "llm": {
+            "provider": gateway.provider_name,
+            "status": "connected" if llm_ok else "disconnected",
+            "model": config.gemini_model if gateway.provider_name == "gemini" else config.ollama_model,
+            "latency_ms": llm_latency,
+        },
         "ollama": {
-            "status": "connected" if ollama_ok else "disconnected",
+            "status": "connected" if (gateway.provider_name == "ollama" and llm_ok) else "idle",
             "model": config.ollama_model,
             "vision_model": config.ollama_vision_model,
-            "latency_ms": ollama_latency,
-            "installed_models": installed_models,
+            "latency_ms": llm_latency if gateway.provider_name == "ollama" else 0,
         },
         "database": {
             "status": "connected",

@@ -30,10 +30,20 @@ class RecoveryRecord(BaseModel):
 
 
 # Failure classification hierarchy
+# NOTE: Desktop-specific types MUST come before generic browser types
+# because classification uses first-match and "not found" in element_not_found
+# would shadow "Window not found" in desktop_window_not_found.
 FAILURE_TYPES = {
     "captcha": ["captcha", "recaptcha", "sorry/index", "unusual traffic", "automated queries", "bot verification", "i'm not a robot"],
     "transient": ["timeout", "Timeout", "net::ERR_", "CONNECTION"],
-    "element_not_found": ["Element has no usable", "Unsupported action", "missing element", "not found", "element not found"],
+    # Desktop-specific failure types (checked before generic browser types)
+    "desktop_element_not_found": ["Grounding failed", "All grounding levels exhausted", "Element not in observation"],
+    "desktop_window_not_found": ["Window not found", "Unknown application"],
+    "desktop_security_boundary": ["Security boundary", "UAC elevation", "consent.exe"],
+    "desktop_uia_failure": ["uiautomation", "COM error"],
+    "desktop_grounding_failed": ["grounding_level\":\"failed"],
+    # Generic browser failure types
+    "element_not_found": ["Element has no usable", "Unsupported action", "missing element", "element not found"],
     "verification_failed": ["Verification failed", "Input verification failed"],
     "navigation_failed": ["Navigation failed", "DNS", "chrome-error"],
     "vision_needed": ["need_help", "Cannot find element"],
@@ -47,6 +57,15 @@ STRATEGY_LEVELS = [
     "alternative_selector", # Same action, try different selector approach
     "vision_fallback",      # Use VLM to find element visually
     "replan",               # Ask LLM to choose a completely different action
+]
+
+# Desktop-specific strategy escalation
+DESKTOP_STRATEGY_LEVELS = [
+    "retry",                    # Re-observe and retry same action
+    "reobserve",                # Fresh observation and replan
+    "keyboard_navigation",      # Fall back to Tab/Enter/shortcuts
+    "vision_grounding",         # Use VLM to locate element visually
+    "replan",                   # Full replanning with different approach
 ]
 
 
@@ -108,6 +127,20 @@ class RecoveryEngine:
             return "replan"
         if failure_type == "navigation_failed":
             return "retry" if retry_count < 2 else "replan"
+
+        # Desktop-specific strategies
+        if failure_type == "desktop_security_boundary":
+            return "blocked"
+        if failure_type == "desktop_element_not_found":
+            if retry_count < 2:
+                return "reobserve"
+            return "keyboard_navigation" if retry_count < 4 else "vision_grounding"
+        if failure_type == "desktop_window_not_found":
+            return "retry" if retry_count < 2 else "replan"
+        if failure_type == "desktop_grounding_failed":
+            return "vision_grounding" if retry_count < 3 else "replan"
+        if failure_type == "desktop_uia_failure":
+            return "reobserve" if retry_count < 2 else "replan"
 
         return STRATEGY_LEVELS[strategy_index]
 

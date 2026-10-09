@@ -93,6 +93,8 @@ class SettingsResponse(BaseModel):
     setup_complete: bool
     ollama_base_url: str
     ollama_model: str
+    llm_provider: str = "gemini"
+    active_model: str = ""
     debug_mode: bool
     auto_approve_low_risk: bool
 

@@ -144,6 +144,28 @@ def sanitize_schema_data(data: dict, schema: type[BaseModel]) -> dict:
                     data["action"] = data[alt]
                     break
 
+    # Map desktop action type aliases to DesktopActionType enum values
+    if schema.__name__ == "DesktopAction" and "action_type" in data:
+        raw_act = str(data["action_type"]).lower().strip()
+        desktop_alias_map = {
+            "launch": "launch_application",
+            "open": "launch_application",
+            "start": "launch_application",
+            "click": "click_element",
+            "click_button": "click_element",
+            "focus": "focus_window",
+            "switch": "switch_window",
+            "type": "type_text",
+            "write": "type_text",
+            "press": "press_key",
+            "hot_key": "hotkey",
+            "close": "close_window",
+            "reobserve": "request_reobservation",
+            "wait_step": "wait",
+        }
+        if raw_act in desktop_alias_map:
+            data["action_type"] = desktop_alias_map[raw_act]
+
     # 2. Map coordinates for VisionAction
     if "x_percent" in schema.model_fields:
         if "x_percent" not in data or data["x_percent"] is None:
@@ -191,6 +213,19 @@ def sanitize_schema_data(data: dict, schema: type[BaseModel]) -> dict:
             data["extracted_data"] = {"summary": data["extracted_data"]}
         elif isinstance(data["extracted_data"], list):
             data["extracted_data"] = {"items": data["extracted_data"]}
+
+    # 6. Coerce expected_effect string to ExpectedEffect dict for DesktopAction
+    if schema.__name__ == "DesktopAction" and "expected_effect" in data:
+        val = data["expected_effect"]
+        if isinstance(val, str):
+            # LLM often returns expected_effect as a plain string description;
+            # convert it to the structured ExpectedEffect format
+            data["expected_effect"] = {
+                "predicate": "window_exists",
+                "target": val,
+                "expected_value": None,
+                "target_window": "",
+            }
 
     return data
 

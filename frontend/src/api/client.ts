@@ -38,6 +38,8 @@ export type Settings = {
   setup_complete: boolean;
   ollama_base_url: string;
   ollama_model: string;
+  llm_provider: string;
+  active_model: string;
   debug_mode: boolean;
   auto_approve_low_risk: boolean;
 };

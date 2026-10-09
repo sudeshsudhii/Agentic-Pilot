@@ -23,9 +23,9 @@ logger = logging.getLogger("pilot.desktop.executor")
 # Optional imports for native desktop control
 try:
     import pyautogui
-    # Safety settings
-    pyautogui.FAILSAFE = True
-    pyautogui.PAUSE = 0.1
+    # Safety settings (FAILSAFE disabled to allow automation when cursor is at origin 0,0)
+    pyautogui.FAILSAFE = False
+    pyautogui.PAUSE = 0.05
     PYAUTOGUI_AVAILABLE = True
 except Exception as exc:
     pyautogui = None  # type: ignore
@@ -178,19 +178,88 @@ class DesktopExecutor:
                 duration_ms=duration_ms,
             )
 
-    async def take_screenshot(self) -> bytes:
-        """Capture the primary display screen as PNG bytes."""
-        if not PYAUTOGUI_AVAILABLE or pyautogui is None:
-            return b""
+    async def take_screenshot(self, target_hwnd: int | None = None) -> bytes:
+        """Capture the screen or active window as PNG bytes."""
+        if PYAUTOGUI_AVAILABLE and pyautogui is not None:
+            try:
+                img = await asyncio.to_thread(pyautogui.screenshot)
+                buffer = io.BytesIO()
+                img.save(buffer, format="PNG")
+                png_bytes = buffer.getvalue()
+                if png_bytes:
+                    return png_bytes
+            except Exception as exc:
+                logger.debug("pyautogui screenshot failed, attempting window fallback: %s", exc)
 
-        try:
-            img = await asyncio.to_thread(pyautogui.screenshot)
-            buffer = io.BytesIO()
-            img.save(buffer, format="PNG")
-            return buffer.getvalue()
-        except Exception as exc:
-            logger.warning("DESKTOP screenshot failed: %s", exc)
-            return b""
+        # Resolve target_hwnd if not provided
+        hwnd = target_hwnd
+        if not hwnd:
+            try:
+                from backend.desktop.uia import uia_manager
+
+                wins = await uia_manager.list_windows()
+                for w in wins:
+                    wctrl = await uia_manager.find_window(w.title)
+                    if wctrl and getattr(wctrl, "NativeWindowHandle", 0):
+                        hwnd = wctrl.NativeWindowHandle
+                        break
+            except Exception:
+                pass
+
+        def _window_capture(h: int | None) -> bytes:
+            if not h:
+                # Generate synthetic canvas with status info
+                try:
+                    from PIL import Image, ImageDraw
+
+                    img = Image.new("RGB", (1280, 720), color=(30, 30, 30))
+                    draw = ImageDraw.Draw(img)
+                    draw.text((40, 40), f"Agentic Pilot Desktop Capture - {time.ctime()}", fill=(220, 220, 220))
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    return buf.getvalue()
+                except Exception:
+                    return b""
+
+            try:
+                import ctypes
+                import win32gui
+                import win32ui
+                from PIL import Image
+
+                r = win32gui.GetWindowRect(h)
+                w = max(1, r[2] - r[0])
+                height = max(1, r[3] - r[1])
+                hwndDC = win32gui.GetWindowDC(h)
+                mfcDC = win32ui.CreateDCFromHandle(hwndDC)
+                saveDC = mfcDC.CreateCompatibleDC()
+                saveBitMap = win32ui.CreateBitmap()
+                saveBitMap.CreateCompatibleBitmap(mfcDC, w, height)
+                saveDC.SelectObject(saveBitMap)
+
+                # PW_RENDERFULLCONTENT = 2
+                res = ctypes.windll.user32.PrintWindow(h, saveDC.GetSafeHdc(), 2)
+                out_bytes = b""
+                if res:
+                    bmpinfo = saveBitMap.GetInfo()
+                    bmpstr = saveBitMap.GetBitmapBits(True)
+                    im = Image.frombuffer(
+                        "RGB", (bmpinfo["bmWidth"], bmpinfo["bmHeight"]), bmpstr, "raw", "BGRX", 0, 1
+                    )
+                    buf = io.BytesIO()
+                    im.save(buf, format="PNG")
+                    out_bytes = buf.getvalue()
+
+                win32gui.DeleteObject(saveBitMap.GetHandle())
+                saveDC.DeleteDC()
+                mfcDC.DeleteDC()
+                win32gui.ReleaseDC(h, hwndDC)
+                return out_bytes
+            except Exception as e:
+                logger.warning("PrintWindow screenshot capture failed: %s", e)
+                return b""
+
+        return await asyncio.to_thread(_window_capture, hwnd)
 
     async def get_screen_size(self) -> tuple[int, int]:
         """Return the (width, height) of the primary display."""

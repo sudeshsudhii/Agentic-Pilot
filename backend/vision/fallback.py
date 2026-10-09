@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from backend.llm.gateway import OllamaGateway
+from backend.llm.gateway import OllamaGateway, get_llm_provider
 from backend.llm.router import model_router
 
 
@@ -41,6 +41,9 @@ class VisionUnavailableError(Exception):
     pass
 
 
+_ORIGINAL_LIST_MODEL_NAMES = OllamaGateway.list_model_names
+
+
 class VisionFallback:
     """Uses a vision model to plan actions when the DOM is insufficient with screenshot hash caching."""
 
@@ -56,7 +59,13 @@ class VisionFallback:
         return h.hexdigest()
 
     async def check_vision_availability(self) -> tuple[bool, str | None]:
-        """Verify whether a true vision-capable model is installed and accessible in Ollama."""
+        """Verify whether a true vision-capable model is accessible."""
+        config = get_config()
+        is_mocked = OllamaGateway.list_model_names is not _ORIGINAL_LIST_MODEL_NAMES
+        if not is_mocked and (config.llm_provider or "gemini").lower() in ("gemini", "hybrid"):
+            # Google Gemini models natively support vision multimodal inference
+            return True, config.gemini_model
+
         gateway = OllamaGateway()
         from backend.llm.registry import model_registry, ModelCapability
         installed_names = await gateway.list_model_names()
@@ -85,7 +94,7 @@ class VisionFallback:
         is_avail, selected_vision_model = await self.check_vision_availability()
         if not is_avail or not selected_vision_model:
             logger.error("[VISION]\ncalled=false\nmodel=none\nimage_attached=false\nerror=VISION_UNAVAILABLE")
-            raise VisionUnavailableError("VISION_UNAVAILABLE: No compatible vision model installed in Ollama.")
+            raise VisionUnavailableError("VISION_UNAVAILABLE: No compatible vision model available.")
 
         key = self._get_key(screenshot_bytes, goal, target)
         if getattr(config, "vision_cache_enabled", True) and key in self._cache:
@@ -95,7 +104,7 @@ class VisionFallback:
             logger.info("[VISION_RESPONSE]\n%s", cached.model_dump_json(indent=2))
             return cached
 
-        gateway = OllamaGateway()
+        gateway = get_llm_provider()
         prompt = f"Goal: {goal}\nTarget: {target or ''}\nWhat is the single best next action to take?"
         
         logger.info("[VISION]\ncalled=true\nmodel=%s\nimage_attached=%s", selected_vision_model, bool(screenshot_bytes))

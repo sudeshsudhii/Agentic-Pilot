@@ -46,4 +46,15 @@ class AgentState(TypedDict):
     blocked_reason: str | None
     recovery_options: list[str] | None
 
+    # --- Desktop Environment Fields ---
+    current_environment: str | None  # "browser", "desktop", "mixed"
+    desktop_observation: dict | None  # Serialized DesktopObservation
+    desktop_action: dict | None  # Serialized DesktopAction
+    desktop_action_result: dict | None  # Serialized DesktopActionResult
+    desktop_verification: dict | None  # Serialized verification result
+    active_window: str | None  # Current active window title
+    active_application: str | None  # Current active application process name
+    goal_conditions: list[dict] | None  # Serialized GoalCondition list
+    recovery_strategy: str | None  # Current recovery strategy
+
 

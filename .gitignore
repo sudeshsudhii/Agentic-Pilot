@@ -42,6 +42,7 @@ logs/
 *.log
 *.jsonl
 privacy_audit.jsonl
+@AutomationLog.txt
 
 # Scratch, MCP, & Temporary Test Artifacts
 scratch/

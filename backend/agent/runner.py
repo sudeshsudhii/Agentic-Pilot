@@ -269,6 +269,16 @@ class TaskRunner:
                 "model_role": ckpt.model_role if ckpt else None,
                 "routing_reason": ckpt.routing_reason if ckpt else None,
                 "model_switch": False,
+                # Desktop environment fields
+                "current_environment": None,
+                "desktop_observation": None,
+                "desktop_action": None,
+                "desktop_action_result": None,
+                "desktop_verification": None,
+                "active_window": None,
+                "active_application": None,
+                "goal_conditions": None,
+                "recovery_strategy": None,
             }
 
             async for event in graph.astream(state):
